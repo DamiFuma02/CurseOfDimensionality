@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class LinearAE(nn.Module):
     def __init__(self, latent_dim=3):
@@ -15,7 +16,8 @@ class DeepAE(nn.Module):
         super().__init__()
         act = nn.ReLU() if non_linear else nn.Identity()
         self.enc = nn.Sequential(nn.Linear(784, 256), act, nn.Linear(256, 64), act, nn.Linear(64, latent_dim))
-        self.dec = nn.Sequential(nn.Linear(latent_dim, 64), act, nn.Linear(64, 256), act, nn.Linear(256, 784), nn.Sigmoid())
+        output_act = nn.Sigmoid() if non_linear else nn.Identity()
+        self.dec = nn.Sequential(nn.Linear(latent_dim, 64), act, nn.Linear(64, 256), act, nn.Linear(256, 784), output_act)
     def forward(self, x):
         z = self.enc(x.view(x.size(0), -1))
         return self.dec(z), z
