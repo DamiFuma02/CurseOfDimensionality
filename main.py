@@ -6,7 +6,7 @@ from sklearn.decomposition import PCA
 
 # Import dai nostri moduli core
 from core.data import LatentDataManager
-from core.models import LinearAE, DeepAE, VAE, ConvAE
+from core.models import LinearAE, DeepAE, VAE, ConvAE, TransformerAE
 from core.trainer import ModelTrainer
 from core.visualizer import LatentVisualizer
 
@@ -88,7 +88,9 @@ def run_slide_3():
     print("\n--- Esecuzione Slide 3: Il Collasso Lineare ---")
 
     # Confrontiamo profondità senza attivazione vs con attivazione
-    m_shallow = MODELS_CACHE.get("linear_3d")
+    m_shallow = get_trained_model("linear_3d", LinearAE,
+                              lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+                              latent_dim=3)
     m_lin = get_trained_model("deep_linear_collapse", DeepAE,
                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
                               latent_dim=3, non_linear=False)
@@ -149,7 +151,9 @@ def run_slide_5():
     """Slide 5: Inductive Bias (ConvAE)"""
     print("\n--- Esecuzione Slide 5: Convolutional AE ---")
 
-    m_mlp = MODELS_CACHE.get("deep_relu")
+    m_mlp = get_trained_model("deep_relu", DeepAE,
+                                 lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+                                 latent_dim=3, non_linear=True)
     m_conv = get_trained_model("conv_ae", ConvAE,
                                lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
                                latent_dim=3)
@@ -167,21 +171,47 @@ def run_slide_5():
 
 
 def run_slide_6():
-    """Slide 6: Generazione dal VAE"""
-    print("\n--- Esecuzione Slide 6: Generazione di nuovi dati ---")
+    """
+    Slide 6: Analisi comparativa tra CNN e Transformer.
+    Mostra come il Transformer catturi relazioni globali e strutturali
+    rispetto all'approccio basato sui filtri locali delle CNN.
+    """
+    print("\n--- Esecuzione Slide 6: CNN vs Transformers ---")
 
-    m_vae = MODELS_CACHE.get("vae_3d")
-    m_vae.eval()
+    m_conv = get_trained_model("conv_ae", ConvAE,
+                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+                               latent_dim=3)
 
-    n = 10
-    z_random = torch.randn(n * n, 3).to(dm.device)
+    m_trans = get_trained_model("transformer_ae", TransformerAE,
+                                lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+                                latent_dim=3)
+
+    # 3. Valutazione
+    m_conv.eval()
+    m_trans.eval()
     with torch.no_grad():
-        samples = m_vae.decoder(z_random).cpu().numpy().reshape(-1, 28, 28)
+        rec_conv, z_conv = m_conv(imgs_eval.to(dm.device))
+        rec_trans, z_trans = m_trans(imgs_eval.to(dm.device))
 
-    fig, axes = plt.subplots(n, n, figsize=(10, 10), facecolor='#fdfdfd')
-    for i in range(n * n):
-        axes[i // n, i % n].imshow(samples[i], cmap='bone')
-        axes[i // n, i % n].axis('off')
+    # 4. Visualizzazione tramite LatentVisualizer
+    # Questo mostrerà come le due architetture organizzano lo spazio 3D in modo differente
+    LatentVisualizer.plot_comparison([
+        {
+            'name': 'CNN (Filtri Locali)',
+            'latent': z_conv.cpu().numpy(),
+            'recon': rec_conv.cpu().numpy()
+        },
+        {
+            'name': 'Transformer (Self-Attention)',
+            'latent': z_trans.cpu().numpy(),
+            'recon': rec_trans.cpu().numpy()
+        }
+    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+        title="Slide 6: Efficienza della Rappresentazione\nGeometria Locale (CNN) vs Attenzione Globale (Transformer)")
 
-    plt.suptitle("Slide 6: Campionamento dallo Spazio Latente", fontsize=16, fontweight='bold')
     plt.show()
+
+    # Visualizzazione extra per lo script della presentazione
+    print("\n[Nota Tecnica] Il Transformer organizza lo spazio latente basandosi su correlazioni")
+    print("tra patch distanti, spesso risultando in cluster più definiti per classi")
+    print("con simmetrie globali (es. i '3' vs gli '8').")

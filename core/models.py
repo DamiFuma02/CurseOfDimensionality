@@ -58,3 +58,47 @@ class ConvAE(nn.Module):
     def forward(self, x):
         z = self.enc(x)
         return self.dec(z), z
+
+
+class TransformerAE(nn.Module):
+    def __init__(self, latent_dim=3, patch_size=7, embed_dim=64, num_heads=4, num_layers=2):
+        super().__init__()
+        self.patch_size = patch_size
+        num_patches = (28 // patch_size) ** 2  # Per MNIST: (28/7)^2 = 16 patches
+
+        # Encoder
+        self.patch_embed = nn.Linear(patch_size * patch_size, embed_dim)
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.to_latent = nn.Linear(embed_dim * num_patches, latent_dim)
+
+        # Decoder (Simmetrico o MLP per semplicità di ricostruzione)
+        self.from_latent = nn.Linear(latent_dim, embed_dim * num_patches)
+        self.decoder = nn.Sequential(
+            nn.Linear(embed_dim * num_patches, 512),
+            nn.ReLU(),
+            nn.Linear(512, 784),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        # x shape: [B, 1, 28, 28]
+        p = self.patch_size
+        # Divisione in patches: [B, 16, 49]
+        patches = x.unfold(2, p, p).unfold(3, p, p).reshape(x.shape[0], -1, p * p)
+
+        # Embedding + Position
+        x = self.patch_embed(patches) + self.pos_embed
+
+        # Attention
+        x = self.transformer_encoder(x)
+
+        # Latent
+        z = self.to_latent(x.reshape(x.shape[0], -1))
+
+        # Reconstruction
+        rec = self.decoder(self.from_latent(z))
+        return rec.view(-1, 1, 28, 28), z
