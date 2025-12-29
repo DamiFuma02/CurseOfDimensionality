@@ -33,6 +33,12 @@ labels_remaped = dm.remap_labels(lbls_eval)
 MODELS_CACHE = {}
 
 EPOCHS = 20
+N_SAMPLES_GENERATION = 8
+
+LATENT_SPACE_DIM = 3
+N_COMPONENTS = 3  # for the visualizations
+assert N_COMPONENTS <= LATENT_SPACE_DIM
+latentVisualizer = LatentVisualizer(n_components=N_COMPONENTS)
 
 
 def get_trained_model(model_key, model_class, train_fn, **kwargs):
@@ -55,14 +61,14 @@ def run_slide_2():
     # 1. PCA (Analitica)
     x_flat = imgs_eval.view(len(imgs_eval), -1).numpy()
     x_mean = np.mean(x_flat, axis=0)
-    pca = PCA(n_components=3)
+    pca = PCA(n_components=N_COMPONENTS)
     z_pca = pca.fit_transform(x_flat - x_mean)
     rec_pca = pca.inverse_transform(z_pca) + x_mean
 
     # 2. Linear AE (Stesso dataset)
-    model = get_trained_model("linear_3d", LinearAE,
+    model = get_trained_model("linear_ae", LinearAE,
                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                              latent_dim=3)
+                              latent_dim=LATENT_SPACE_DIM)
 
     model.eval()
     with torch.no_grad():
@@ -74,11 +80,11 @@ def run_slide_2():
     R, _ = orthogonal_procrustes(z_ae, z_pca)
     z_ae_aligned = z_ae @ R
 
-    LatentVisualizer.plot_comparison([
-        {'name': '1. PCA', 'latent': z_pca, 'recon': rec_pca},
-        {'name': '2. Linear AE (Aligned)', 'latent': z_ae_aligned, 'recon': rec_ae},
-        {'name': '3. Linear AE (Raw)', 'latent': z_ae, 'recon': rec_ae}
-    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+    latentVisualizer.plot_comparison([
+        {'name': '1. PCA', 'latent': z_pca, 'recon': rec_pca,'is_linear': True},
+        {'name': '2. Linear AE (Aligned)', 'latent': z_ae_aligned, 'recon': rec_ae,'is_linear': True},
+        {'name': '3. Linear AE (Raw)', 'latent': z_ae, 'recon': rec_ae,'is_linear': True}
+    ], imgs_eval[:N_SAMPLES_GENERATION], labels_remaped, dm.semantic_names,
         title="Slide 2: L'Equivalenza Matematica tra PCA e Autoencoder Lineare")
     plt.show()
 
@@ -88,16 +94,16 @@ def run_slide_3():
     print("\n--- Esecuzione Slide 3: Il Collasso Lineare ---")
 
     # Confrontiamo profondità senza attivazione vs con attivazione
-    m_shallow = get_trained_model("linear_3d", LinearAE,
+    m_shallow = get_trained_model("linear_ae", LinearAE,
                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                              latent_dim=3)
+                              latent_dim=LATENT_SPACE_DIM)
     m_lin = get_trained_model("deep_linear_collapse", DeepAE,
                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                              latent_dim=3, non_linear=False)
+                              latent_dim=LATENT_SPACE_DIM, non_linear=False)
 
     m_nonlin = get_trained_model("deep_relu", DeepAE,
                                  lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                                 latent_dim=3, non_linear=True)
+                                 latent_dim=LATENT_SPACE_DIM, non_linear=True)
 
     with torch.no_grad():
         rec_shallow, z_shallow = m_shallow(imgs_eval.to(dm.device))
@@ -108,11 +114,11 @@ def run_slide_3():
     z_l = z_l.cpu().numpy()
     R, _ = orthogonal_procrustes(z_l, z_shallow)
     z_l_aligned = z_l @ R
-    LatentVisualizer.plot_comparison([
-        {'name': 'Shallow Linear', 'latent': z_shallow, 'recon': rec_shallow.cpu().numpy()},
-        {'name': 'Deep Linear (Collapse)', 'latent': z_l_aligned, 'recon': rec_l.cpu().numpy()},
-        {'name': 'Deep Non-Linear (MLP)', 'latent': z_n.cpu().numpy(), 'recon': rec_n.cpu().numpy()}
-    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+    latentVisualizer.plot_comparison([
+        {'name': 'Shallow Linear AE', 'latent': z_shallow, 'recon': rec_shallow.cpu().numpy()},
+        {'name': 'Deep Linear AE (Collapse)', 'latent': z_l_aligned, 'recon': rec_l.cpu().numpy()},
+        {'name': 'Deep Non-Linear AE', 'latent': z_n.cpu().numpy(), 'recon': rec_n.cpu().numpy()}
+    ], imgs_eval[:N_SAMPLES_GENERATION], labels_remaped, dm.semantic_names,
         title="Slide 3: Perché serve la Non-Linearità?\nProfondità vs Collasso.")
     plt.show()
 
@@ -123,26 +129,26 @@ def run_slide_4():
 
 
     beta_values = [0.1,1.2,6]
-    m_vae_low = get_trained_model("vae_3d_low", VAE,
+    m_vae_low = get_trained_model("vae_low", VAE,
                               lambda m, dl: trainer.train_vae(m, dl, epochs=EPOCHS, beta=beta_values[0]),
-                              latent_dim=3)
-    m_vae_medium = get_trained_model("vae_3d_medium", VAE,
+                              latent_dim=LATENT_SPACE_DIM)
+    m_vae_medium = get_trained_model("vae_medium", VAE,
                                   lambda m, dl: trainer.train_vae(m, dl, epochs=EPOCHS, beta=beta_values[1]),
-                                  latent_dim=3)
-    m_vae_high = get_trained_model("vae_3d_high", VAE,
+                                  latent_dim=LATENT_SPACE_DIM)
+    m_vae_high = get_trained_model("vae_high", VAE,
                                   lambda m, dl: trainer.train_vae(m, dl, epochs=EPOCHS, beta=beta_values[2]),
-                                  latent_dim=3)
+                                  latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():
-        rec_low, z_low = m_vae_low(imgs_eval.to(dm.device))
+        rec_vae_low, mu_vae_low, _ = m_vae_low(imgs_eval.to(dm.device))
         rec_vae_medium, mu_vae_medium, _ = m_vae_medium(imgs_eval.to(dm.device))
         rec_vae_high, mu_vae_high, _ = m_vae_high(imgs_eval.to(dm.device))
 
-    LatentVisualizer.plot_comparison([
-        {'name': f'beta {beta_values[0]} Standard AE (Sparse)', 'latent': z_low.cpu().numpy(), 'recon': rec_low.cpu().numpy()},
+    latentVisualizer.plot_comparison([
+        {'name': f'beta {beta_values[0]} Standard AE (Sparse)', 'latent': mu_vae_low.cpu().numpy(), 'recon': rec_vae_low.cpu().numpy()},
         {'name': f'beta {beta_values[1]} VAE (Gaussian)', 'latent': mu_vae_medium.cpu().numpy(), 'recon': rec_vae_medium.cpu().numpy()},
         {'name': f'beta {beta_values[2]} VAE (Gaussian)', 'latent': mu_vae_medium.cpu().numpy(), 'recon': rec_vae_medium.cpu().numpy()}
-    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+    ], imgs_eval[:N_SAMPLES_GENERATION], labels_remaped, dm.semantic_names,
         title="Slide 4: Regolarizzazione dello Spazio Latente")
     plt.show()
 
@@ -153,19 +159,19 @@ def run_slide_5():
 
     m_mlp = get_trained_model("deep_relu", DeepAE,
                                  lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                                 latent_dim=3, non_linear=True)
+                                 latent_dim=LATENT_SPACE_DIM, non_linear=True)
     m_conv = get_trained_model("conv_ae", ConvAE,
                                lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                               latent_dim=3)
+                               latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():
         rec_mlp, z_mlp = m_mlp(imgs_eval.to(dm.device))
         rec_conv, z_conv = m_conv(imgs_eval.to(dm.device))
 
-    LatentVisualizer.plot_comparison([
+    latentVisualizer.plot_comparison([
         {'name': 'MLP AE (Dense)', 'latent': z_mlp.cpu().numpy(), 'recon': rec_mlp.cpu().numpy()},
         {'name': 'Conv AE (Spatial)', 'latent': z_conv.cpu().numpy(), 'recon': rec_conv.cpu().numpy()}
-    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+    ], imgs_eval[:N_SAMPLES_GENERATION], labels_remaped, dm.semantic_names,
         title="Slide 5: Inductive Bias Spaziale")
     plt.show()
 
@@ -180,11 +186,11 @@ def run_slide_6():
 
     m_conv = get_trained_model("conv_ae", ConvAE,
                                lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                               latent_dim=3)
+                               latent_dim=LATENT_SPACE_DIM)
 
     m_trans = get_trained_model("transformer_ae", TransformerAE,
                                 lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
-                                latent_dim=3)
+                                latent_dim=LATENT_SPACE_DIM)
 
     # 3. Valutazione
     m_conv.eval()
@@ -195,7 +201,7 @@ def run_slide_6():
 
     # 4. Visualizzazione tramite LatentVisualizer
     # Questo mostrerà come le due architetture organizzano lo spazio 3D in modo differente
-    LatentVisualizer.plot_comparison([
+    latentVisualizer.plot_comparison([
         {
             'name': 'CNN (Filtri Locali)',
             'latent': z_conv.cpu().numpy(),
@@ -206,7 +212,7 @@ def run_slide_6():
             'latent': z_trans.cpu().numpy(),
             'recon': rec_trans.cpu().numpy()
         }
-    ], imgs_eval[:8], labels_remaped, dm.semantic_names,
+    ], imgs_eval[:N_SAMPLES_GENERATION], labels_remaped, dm.semantic_names,
         title="Slide 6: Efficienza della Rappresentazione\nGeometria Locale (CNN) vs Attenzione Globale (Transformer)")
 
     plt.show()

@@ -1,93 +1,101 @@
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import numpy as np
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 
 class LatentVisualizer:
     """
-    Motore grafico per l'analisi delle Architetture Latenti.
-    Gestisce il confronto tra più modelli, visualizzando lo spazio 3D
-    e le relative ricostruzioni.
+    Motore grafico flessibile per l'analisi delle Architetture Latenti.
+    Supporta visualizzazioni 2D e 3D dinamiche.
     """
 
-    @staticmethod
-    def plot_comparison(models_data, original_imgs, labels, semantic_names, title=""):
-        """
-        Parametri:
-        - models_data: Lista di dizionari {'name': str, 'latent': ndarray, 'recon': ndarray}
-        - original_imgs: Array dei campioni originali (primi N da evidenziare)
-        - labels: Etichette semantiche per la nuvola di punti (0-9)
-        - semantic_names: Lista dei nomi delle classi in ordine semantico
-        - title: Titolo principale della slide
-        """
+    def __init__(self, n_components=3):
+        if n_components not in [2, 3]:
+            raise ValueError("n_components deve essere 2 o 3.")
+        self.n_components = n_components
+
+    def plot_comparison(self, models_data, original_imgs, labels, semantic_names, title=""):
         n_models = len(models_data)
         n_samples = len(original_imgs)
 
         # 1. CONFIGURAZIONE FIGURA
-        # Aumentiamo la dimensione verticale per dare spazio ai grafici 3D ingranditi
-        fig = plt.figure(figsize=(20, 7 + 3.5 * n_models), facecolor='#fdfdfd')
+        # Altezza dinamica in base al numero di modelli
+        fig = plt.figure(figsize=(22, 8 + 4 * n_models), facecolor='#fdfdfd')
         cmap = plt.cm.get_cmap('turbo', 10)
 
-        # 2. GRIGLIA SUPERIORE: SPAZI LATENTI (3D)
-        # bottom=0.45 dà più spazio verticale ai grafici 3D
-        gs_top = gridspec.GridSpec(1, n_models, figure=fig, bottom=0.45, top=0.90, wspace=0.05)
+        # 2. GRIGLIA SUPERIORE: SPAZI LATENTI
+        gs_top = gridspec.GridSpec(1, n_models, figure=fig, bottom=0.45, top=0.90, wspace=0.15)
 
         for i, m in enumerate(models_data):
-            ax = fig.add_subplot(gs_top[0, i], projection='3d')
-            z = m['latent']
+            # Creazione asse: 3D solo se richiesto
+            ax_kwargs = {'projection': '3d'} if self.n_components == 3 else {}
+            ax = fig.add_subplot(gs_top[0, i], **ax_kwargs)
 
-            # A. Nuvola di punti (Background) - Alpha basso per vedere la struttura
-            ax.scatter(z[:, 0], z[:, 1], z[:, 2], c=labels, cmap=cmap, s=40, alpha=0.30, edgecolors='none')
+            z_raw = m['latent']
+            dim_orig = z_raw.shape[1]
+            is_linear = m.get('is_linear', False)
 
-            # B. Evidenziazione Campioni (Stelle)
-            # Prendiamo i primi n_samples che corrispondono alle immagini sotto
-            zs = z[:n_samples]
-            ax.scatter(zs[:, 0], zs[:, 1], zs[:, 2],
-                       c='black', marker='*', s=180, edgecolors='white', linewidth=0.8, zorder=10)
+            if dim_orig == self.n_components:
+                z = z_raw
+                tech_name = "Direct"
+            elif is_linear:
+                # PCA per modelli lineari
+                z = PCA(n_components=self.n_components).fit_transform(z_raw)
+                tech_name = "PCA"
+            else:
+                # t-SNE per modelli non lineari
+                z = TSNE(n_components=self.n_components, perplexity=30, random_state=42, init='pca',
+                         learning_rate='auto').fit_transform(z_raw)
+                tech_name = "t-SNE"
 
-            # C. Etichette Numeriche (1, 2, 3...)
+            subtitle = f"{m['name']}\n({tech_name} {dim_orig}D -> {self.n_components}D)"
+
+            # --- PLOTTING ---
+            coords = [z[:, j] for j in range(self.n_components)]
+            sample_coords = [z[:n_samples, j] for j in range(self.n_components)]
+
+            # A. Nuvola di punti (Background)
+            ax.scatter(*coords, c=labels, cmap=cmap, s=35, alpha=0.25, edgecolors='none')
+
+            # B. Campioni Evidenziati (Stelle)
+            ax.scatter(*sample_coords, c='black', marker='*', s=200, edgecolors='white', linewidth=1, zorder=10)
+
+            # C. Etichette Numeriche
             for idx in range(n_samples):
-                ax.text(zs[idx, 0], zs[idx, 1], zs[idx, 2], f" {idx + 1}",
-                        fontsize=12, fontweight='black', zorder=11, color='black')
+                point = [z[idx, j] for j in range(self.n_components)]
+                ax.text(*point, f" {idx + 1}", fontsize=12, fontweight='black', zorder=11)
 
-            # D. Ottimizzazione Visuale 3D
-            ax.set_box_aspect((1, 1, 1))  # Cubo perfetto
-            ax.dist = 8  # Zoom: valore più basso = più vicino (default 10)
-            ax.view_init(elev=20, azim=45)
-            ax.set_title(m['name'], fontweight='bold', fontsize=15, pad=10, color='#2c3e50')
-
-            # Pulizia assi
+            # D. Styling specifico per dimensione
+            ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
             ax.set_xticks([])
             ax.set_yticks([])
-            ax.set_zticks([])
-            # Rende i piani trasparenti per un look più moderno
-            ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-            ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-            ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
 
-        # 3. LEGENDA (COLORBAR) AD ALTA VISIBILITÀ
-        # Creiamo un mappabile finto per forzare alpha=1.0 nella legenda
-        cbar_ax = fig.add_axes([0.94, 0.50, 0.012, 0.35])  # Posizione a destra
-        norm = Normalize(vmin=0, vmax=9)
-        sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
+            if self.n_components == 3:
+                ax.set_zticks([])
+                ax.set_box_aspect((1, 1, 1))
+                ax.view_init(elev=20, azim=45)
+                # Rende i piani trasparenti
+                ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+                ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+                ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+            else:
+                ax.set_aspect('equal', 'datalim')
+                # Rimuove i bordi per un look pulito in 2D
+                for spine in ax.spines.values(): spine.set_visible(False)
 
-        cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_alpha(1.0)  # Colori pieni
-        cbar.set_ticks(range(10))
-        cbar.ax.set_yticklabels(semantic_names, fontsize=10, fontweight='bold', color='#2c3e50')
-        cbar.outline.set_edgecolor('#2c3e50')
-        cbar.set_label('Categorie Semantiche', fontsize=12, fontweight='bold', labelpad=15)
+        # 3. LEGENDA (COLORBAR)
+        cbar_ax = fig.add_axes([0.93, 0.55, 0.01, 0.30])
+        sm = cm.ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=9))
+        fig.colorbar(sm, cax=cbar_ax, ticks=range(10)).ax.set_yticklabels(semantic_names, fontweight='bold')
 
         # 4. GRIGLIA INFERIORE: RICOSTRUZIONI
-        # top=0.38 assicura che non ci sia sovrapposizione con i grafici 3D sopra
-        gs_bottom = gridspec.GridSpec(n_models + 1, n_samples, figure=fig, top=0.38, bottom=0.05, hspace=0.4,
+        gs_bottom = gridspec.GridSpec(n_models + 1, n_samples, figure=fig, top=0.38, bottom=0.05, hspace=0.5,
                                       wspace=0.1)
-
         for j in range(n_samples):
-            # Riga 0: Immagini Originali
+            # Originali
             ax_orig = fig.add_subplot(gs_bottom[0, j])
             ax_orig.imshow(original_imgs[j].squeeze(), cmap='bone')
             ax_orig.set_title(f"S{j + 1}", fontsize=11, fontweight='bold')
@@ -96,35 +104,16 @@ class LatentVisualizer:
                 ax_orig.text(-15, 14, "Originale", fontsize=12, fontweight='bold', ha='right', va='center',
                              color='#34495e')
 
-            # Righe successive: Ricostruzioni per ogni modello
+            # Ricostruzioni
             for i, m in enumerate(models_data):
                 ax_recon = fig.add_subplot(gs_bottom[i + 1, j])
-                # Gestione shape (se l'output è flat 784 o 28x28)
-                img_recon = m['recon'][j].reshape(28, 28)
-                ax_recon.imshow(img_recon, cmap='bone')
+                ax_recon.imshow(m['recon'][j].reshape(28, 28), cmap='bone')
                 ax_recon.axis('off')
                 if j == 0:
                     ax_recon.text(-15, 14, m['name'], fontsize=12, fontweight='bold', ha='right', va='center',
                                   color='#34495e')
 
-        # 5. TITOLO FINALE
         plt.suptitle(title, fontsize=22, fontweight='bold', y=0.97, color='#1a1a1a')
 
-        return fig
-
-    @staticmethod
-    def plot_generation_grid(samples, title="Generazione dallo Spazio Latente"):
-        """
-        Metodo specifico per la Slide 7 (Generazione).
-        Visualizza una griglia di immagini generate casualmente.
-        """
-        n = int(np.sqrt(len(samples)))
-        fig, axes = plt.subplots(n, n, figsize=(10, 10), facecolor='#fdfdfd')
-        for i in range(n * n):
-            ax = axes[i // n, i % n]
-            ax.imshow(samples[i].reshape(28, 28), cmap='bone')
-            ax.axis('off')
-
-        plt.suptitle(title, fontsize=18, fontweight='bold', y=0.95)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.suptitle(title, fontsize=24, fontweight='bold', y=0.96)
         return fig
