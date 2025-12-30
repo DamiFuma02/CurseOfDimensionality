@@ -27,7 +27,7 @@ class LatentVisualizer:
         cmap = plt.cm.get_cmap('turbo', 10)
 
         # 2. GRIGLIA SUPERIORE: SPAZI LATENTI
-        gs_top = gridspec.GridSpec(1, n_models, figure=fig, bottom=0.45, top=0.90, wspace=0.15)
+        gs_top = gridspec.GridSpec(1, n_models, figure=fig, bottom=0.45, top=0.85, wspace=0.15)
 
         for i, m in enumerate(models_data):
             # Creazione asse: 3D solo se richiesto
@@ -69,7 +69,8 @@ class LatentVisualizer:
                 ax.text(*point, f" {idx + 1}", fontsize=12, fontweight='black', zorder=11)
 
             # D. Styling specifico per dimensione
-            ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
+            if dim_orig != self.n_components:
+                ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
             ax.set_xticks([])
             ax.set_yticks([])
 
@@ -113,7 +114,6 @@ class LatentVisualizer:
                     ax_recon.text(-15, 14, m['name'], fontsize=12, fontweight='bold', ha='right', va='center',
                                   color='#34495e')
 
-        plt.suptitle(title, fontsize=22, fontweight='bold', y=0.97, color='#1a1a1a')
+        plt.suptitle(title, fontsize=22, fontweight='bold', y=0.99)
 
-        plt.suptitle(title, fontsize=24, fontweight='bold', y=0.96)
         return fig
