@@ -134,9 +134,12 @@ class LatentAnalizer:
         with torch.no_grad():
             combined_w = None
             # Funziona se il modello ha un attributo .enc (Sequential)
-            if hasattr(model, 'enc') and isinstance(model.enc, torch.nn.Sequential):
-                for layer in model.enc:
-                    if isinstance(layer, torch.nn.Linear):
-                        w = layer.weight.detach().cpu().numpy()
-                        combined_w = w if combined_w is None else w @ combined_w
+            if hasattr(model, 'enc'):
+                if isinstance(model.enc, torch.nn.Sequential):
+                    for layer in model.enc:
+                        if isinstance(layer, torch.nn.Linear):
+                            w = layer.weight.detach().cpu().numpy()
+                            combined_w = w if combined_w is None else w @ combined_w
+                elif isinstance(model.enc, torch.nn.Linear):
+                    combined_w = model.enc.weight.detach().cpu().float()
             return np.linalg.matrix_rank(combined_w) if combined_w is not None else 0
