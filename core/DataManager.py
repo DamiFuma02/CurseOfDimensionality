@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, Subset
 import numpy as np
 
 
-class LatentDataManager:
+class DataManager:
     def __init__(self, batch_size=128, limit_samples=2000):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = batch_size

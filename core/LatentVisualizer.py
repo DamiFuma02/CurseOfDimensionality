@@ -51,7 +51,9 @@ class LatentVisualizer:
                          learning_rate='auto').fit_transform(z_raw)
                 tech_name = "t-SNE"
 
-            subtitle = f"{m['name']}\n({tech_name} {dim_orig}D -> {self.n_components}D)"
+            subtitle = f"{m['name']}\n"
+            if dim_orig != self.n_components:
+                subtitle += f"({tech_name} {dim_orig}D -> {self.n_components}D)"
 
             # --- PLOTTING ---
             coords = [z[:, j] for j in range(self.n_components)]
@@ -69,8 +71,7 @@ class LatentVisualizer:
                 ax.text(*point, f" {idx + 1}", fontsize=12, fontweight='black', zorder=11)
 
             # D. Styling specifico per dimensione
-            if dim_orig != self.n_components:
-                ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
+            ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
             ax.set_xticks([])
             ax.set_yticks([])
 
