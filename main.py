@@ -7,7 +7,7 @@ from core.LatentAnalizer import LatentAnalizer
 from core.DataManager import DataManager
 from core.models import LinearAE, DeepAE, VAE, ConvAE, TransformerAE
 from core.ModelTrainer import ModelTrainer
-from core.LatentVisualizer import LatentVisualizer
+from core.PlotVisualizer import PlotVisualizer
 
 # ==========================================
 # CONFIGURAZIONE GLOBALE E DETERMINISMO
@@ -32,7 +32,7 @@ LATENT_SPACE_DIM = 3
 N_COMPONENTS = 3
 assert N_COMPONENTS <= LATENT_SPACE_DIM
 
-latentVisualizer = LatentVisualizer(n_components=N_COMPONENTS)
+plotVisualizer = PlotVisualizer(n_components=N_COMPONENTS)
 latent_analizer = LatentAnalizer()
 
 BETA_VALUES = [0.01,5,20]
@@ -40,12 +40,13 @@ assert len(BETA_VALUES) == 3
 
 
 def get_trained_model(model_key, model_class, train_fn, **kwargs):
-    """Utility per addestrare un modello una sola volta e riutilizzarlo."""
+    """Utility aggiornata per salvare modello e cronologia loss."""
     if model_key not in MODELS_CACHE:
         print(f"\n[Training] Addestramento nuovo modello per: {model_key}")
         model = model_class(**kwargs)
-        MODELS_CACHE[model_key] = train_fn(model, train_loader)
-    return MODELS_CACHE[model_key]
+        model, history = train_fn(model, train_loader, eval_loader)
+        MODELS_CACHE[model_key] = {'model': model, 'history': history}
+    return MODELS_CACHE[model_key]['model'], MODELS_CACHE[model_key]['history']
 
 
 # ==========================================
@@ -63,8 +64,8 @@ def run_slide_2():
     rec_pca = pca.inverse_transform(z_pca) + np.mean(x_flat, axis=0)
 
     # Linear AE
-    model = get_trained_model("linear_ae", LinearAE,
-                              lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    model, _ = get_trained_model("linear_ae", LinearAE,
+                              lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                               latent_dim=LATENT_SPACE_DIM)
     with torch.no_grad():
         rec_ae, z_ae = model(imgs_eval.to(dm.device))
@@ -80,7 +81,7 @@ def run_slide_2():
     ae_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(x_flat,rec_ae)
     pca_align_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(x_flat,rec_pca_aligned)
 
-    latentVisualizer.plot_comparison([
+    plotVisualizer.plot_latent_and_generation_comparison([
         {'name': f'PCA\nMSE: {pca_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_reconstr_metrics["ssim"]:.3f}', 'latent': z_pca, 'recon': rec_pca},
         {'name': f'Linear AE (RAW)\nMSE: {ae_reconstr_metrics["mse"]:.4f}\nSSIM: {ae_reconstr_metrics["ssim"]:.3f}', 'latent': z_ae.cpu().numpy(),'recon': rec_ae.cpu().numpy()},
         {'name': f'PCA (AE Aligned)\nMSE: {pca_align_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_align_reconstr_metrics["ssim"]:.3f}\nProcrustes Err: {proc_error:.2e}', 'latent': z_pca_aligned,'recon': rec_pca_aligned.cpu().numpy()}
@@ -91,14 +92,14 @@ def run_slide_2():
 def run_slide_3():
     """Slide 3: Collasso della Profondità (Rango e Non-Linearità)"""
     print("\n--- Slide 3: Il Collasso Lineare ---")
-    m_shallow = get_trained_model("linear_ae", LinearAE,
-                              lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_shallow, sl_loss_hist = get_trained_model("linear_ae", LinearAE,
+                              lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                               latent_dim=LATENT_SPACE_DIM)
-    m_deep_lin = get_trained_model("deep_linear_ae", DeepAE,
-                                   lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_deep_lin, dl_loss_hist = get_trained_model("deep_linear_ae", DeepAE,
+                                   lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                                    latent_dim=LATENT_SPACE_DIM, non_linear=False)
-    m_deep_nonlin = get_trained_model("deep_non_linear_ae", DeepAE,
-                                      lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_deep_nonlin, dnl_loss_hist = get_trained_model("deep_non_linear_ae", DeepAE,
+                                      lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                                       latent_dim=LATENT_SPACE_DIM, non_linear=True)
 
     with torch.no_grad():
@@ -117,7 +118,7 @@ def run_slide_3():
     dl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_dl)
     dnl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_dnl)
 
-    latentVisualizer.plot_comparison([
+    plotVisualizer.plot_latent_and_generation_comparison([
         {'name': f'Shallow Linear AE\nMSE: {sl_reconstr_metrics["mse"]:.4f}\nSSIM: {sl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_sl}', 'latent': z_sl.cpu().numpy(),
          'recon': rec_sl.cpu().numpy()},
         {'name': f'Deep Linear AE (Shallow Aligned)\nMSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {proc_error:.2e}', 'latent': z_dl_aligned,
@@ -126,18 +127,28 @@ def run_slide_3():
          'recon': rec_dnl.cpu().numpy()}
     ], imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 3: Profondità vs Non-Linearità")
     plt.show()
+    plotVisualizer.plot_training_history([
+        {'name': 'Shallow Linear AE', 'history': sl_loss_hist},
+        {'name': 'Deep Linear AE', 'history': dl_loss_hist},
+        {'name': 'Deep Non Linear AE', 'history': dnl_loss_hist},
+    ])
+    plt.show()
 
 
 def run_slide_4():
     """Slide 4: AE vs VAE (Continuità Topologica)"""
     print("\n--- Slide 4: AE vs VAE ---")
-    m_ae = get_trained_model("deep_non_linear_ae", DeepAE, None)
+    m_ae, ae_history = get_trained_model("deep_non_linear_ae", DeepAE,
+                                      lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                                      latent_dim=LATENT_SPACE_DIM, non_linear=True)
     beta_vae_models = []
+    beta_vae_training_history = []
     for beta in BETA_VALUES:
-        beta_vae_model = get_trained_model(f"betavae_{beta}", VAE,
-                              lambda m, dl: trainer.train_vae(m, dl, epochs=EPOCHS, beta=beta),
+        beta_vae_model, history = get_trained_model(f"betavae_{beta}", VAE,
+                              lambda m, tl, vl: trainer.train_vae(m, tl, vl, epochs=EPOCHS, beta=beta),
                               latent_dim=LATENT_SPACE_DIM)
         beta_vae_models.append(beta_vae_model)
+        beta_vae_training_history.append(history)
     rec_list = []
     latent_list = []
     with torch.no_grad():
@@ -150,22 +161,36 @@ def run_slide_4():
     ae_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_ae)
     sil_ae = latent_analizer.compute_clustering_quality(z_ae.cpu().numpy(), labels_remapped)
     mig_ae = latent_analizer.compute_mig(z_ae.cpu().numpy(), labels_remapped)
-
-    models_data = [
-        {'name': f'Standard AE\nSSIM: {ae_reconstr_metrics["ssim"]:.3f}\nMIG: {mig_ae:.3f}\nSilh: {sil_ae:.3f}','latent': z_ae.cpu().numpy(), 'recon': rec_ae.cpu().numpy()},
-    ]
     sil_scores = []
     ssim_scores = []
     mig_scores = []
+    lower_beta_found, z_ae_np, proc_error = False, z_ae.cpu().numpy(), None
     for i, beta in enumerate(BETA_VALUES):
+        if not lower_beta_found and beta <= 0.01:
+            lower_beta_found = True
+            z_ae_np, proc_error = latent_analizer.procrustes(z_ae_np, latent_list[i])
         mig_scores.append(latent_analizer.compute_mig(latent_list[i], labels_remapped))
         ssim_scores.append(latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_list[i])["ssim"])
         sil_scores.append(latent_analizer.compute_clustering_quality(latent_list[i], labels_remapped))
 
+    models_data = [
+        {'name': f'Standard AE\nSSIM: {ae_reconstr_metrics["ssim"]:.3f}\nMIG: {mig_ae:.3f}\nSilh: {sil_ae:.3f}' + (f"\nAligned with lowest beta VAE\nProc. Err={proc_error}" if lower_beta_found else ''),
+         'latent': z_ae_np, 'recon': rec_ae.cpu().numpy()
+         },
+    ]
     models_data.extend([
-        {'name': f'beta={beta}VAE\nSSIM={ssim_scores[i]:.3f}\nMIG: {mig_scores[i]:.3f}\nSilh: {sil_scores[i]:.3f}', 'latent': latent_list[i],'recon': rec_list[i]} for i, beta in enumerate(BETA_VALUES)
+        {'name': f'beta={beta} VAE\nSSIM={ssim_scores[i]:.3f}\nMIG: {mig_scores[i]:.3f}\nSilh: {sil_scores[i]:.3f}', 'latent': latent_list[i],'recon': rec_list[i]} for i, beta in enumerate(BETA_VALUES)
     ])
-    latentVisualizer.plot_comparison(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 4: Regolarizzazione dello Spazio Latente")
+    plotVisualizer.plot_latent_and_generation_comparison(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 4: Regolarizzazione dello Spazio Latente")
+    plt.show()
+
+    models_data = [
+        {'name': 'Standard AE', 'history': ae_history}
+    ]
+    models_data.extend([
+        {"name": f"beta={beta} VAE", "history": beta_vae_training_history[i]} for i, beta in enumerate(BETA_VALUES)
+    ])
+    plotVisualizer.plot_training_history(models_data)
     plt.show()
 
 
@@ -173,11 +198,11 @@ def run_slide_5():
     """Slide 5: ConvAE vs MLP VAE (Bias Induttivo e CCA)"""
     print("\n--- Slide 5: ConvAE vs MLP VAE ---")
     # choosing the middle beta value
-    m_betavae = get_trained_model(f"betavae_{BETA_VALUES[1]}", VAE,
-                              lambda m, dl: trainer.train_vae(m, dl, epochs=EPOCHS, beta=BETA_VALUES[1]),
+    m_betavae, betavae_history = get_trained_model(f"betavae_{BETA_VALUES[1]}", VAE,
+                              lambda m, tl, vl: trainer.train_vae(m, tl, vl, epochs=EPOCHS, beta=BETA_VALUES[1]),
                               latent_dim=LATENT_SPACE_DIM)
-    m_conv = get_trained_model("conv_ae", ConvAE,
-                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_conv, cnn_history = get_trained_model("conv_ae", ConvAE,
+                               lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                                latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():
@@ -192,39 +217,60 @@ def run_slide_5():
     params_conv = latent_analizer.get_model_complexity(m_conv)
     silh_conv = latent_analizer.compute_clustering_quality(z_conv.cpu().numpy(), labels_remapped)
 
-    latentVisualizer.plot_comparison([
-        {'name': f'MLP VAE\nSSIM: {ssim_vae:.3f}\nSilh: {silh_vae:.3f}\nParams count={params_vae}', 'latent': mu_vae.cpu().numpy(),
+    plotVisualizer.plot_latent_and_generation_comparison([
+        {'name': f'beta={BETA_VALUES[1]} VAE\nSSIM: {ssim_vae:.3f}\nSilh: {silh_vae:.3f}\nParams count={params_vae:.2e}', 'latent': mu_vae.cpu().numpy(),
          'recon': rec_vae.cpu().numpy()},
-        {'name': f'Conv AE\nSSIM: {ssim_conv:.3f}\nSilh: {silh_conv:.3f}\nParams count={params_conv}', 'latent': z_conv.cpu().numpy(),
+        {'name': f'Conv AE\nSSIM: {ssim_conv:.3f}\nSilh: {silh_conv:.3f}\nParams count={params_conv:.2e}', 'latent': z_conv.cpu().numpy(),
          'recon': rec_conv.cpu().numpy()}
     ], imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 5: Efficienza Spaziale delle Convoluzioni")
     plt.show()
+    plotVisualizer.plot_training_history([
+        {"name": f"beta={BETA_VALUES[1]} VAE", "history": betavae_history},
+        {"name": "Conv AE", "history": cnn_history}
+    ])
+    plt.show()
+
 
 
 def run_slide_6():
     """Slide 6: Transformer vs CNN (CKA e Attenzione Globale)"""
     print("\n--- Slide 6: Transformer vs CNN ---")
-    m_conv = get_trained_model("conv_ae", ConvAE,
-                               lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_cnn, cnn_history = get_trained_model("conv_ae", ConvAE,
+                               lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                                latent_dim=LATENT_SPACE_DIM)
-    m_trans = get_trained_model("transformer_ae", TransformerAE,
-                                lambda m, dl: trainer.train_standard(m, dl, epochs=EPOCHS),
+    m_vit, vit_history = get_trained_model("transformer_ae", TransformerAE,
+                                lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
                                 latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():
-        rec_conv, z_conv = m_conv(imgs_eval.to(dm.device))
-        rec_trans, z_trans = m_trans(imgs_eval.to(dm.device))
+        rec_cnn, z_cnn = m_cnn(imgs_eval.to(dm.device))
+        rec_vit, z_vit = m_vit(imgs_eval.to(dm.device))
 
-    z_conv_np, z_trans_np = z_conv.cpu().numpy(), z_trans.cpu().numpy()
+    z_cnn_np, z_vit_np = z_cnn.cpu().numpy(), z_vit.cpu().numpy()
 
-    ssim_conv = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_conv)["ssim"]
-    sil_conv =latent_analizer.compute_clustering_quality(z_conv_np, labels_remapped)
-    ssim_trans = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_trans)["ssim"]
-    sil_trans = latent_analizer.compute_clustering_quality(z_trans_np, labels_remapped)
-    cka_val = latent_analizer.cka_score(z_conv_np, z_trans_np)
+    # cnn metrics
+    ssim_conv = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_cnn)["ssim"]
+    sil_conv =latent_analizer.compute_clustering_quality(z_cnn_np, labels_remapped)
+    params_conv = latent_analizer.get_model_complexity(m_cnn)
+    cnn_flops = latent_analizer.compute_flops(m_cnn)["mflops"] # MegaFLOPs
 
-    latentVisualizer.plot_comparison([
-        {'name': f'CNN\nSSIM: {ssim_conv:.3f}\nSilh: {sil_conv:.3f}\n', 'latent': z_conv_np,'recon': rec_conv.cpu().numpy()},
-        {'name': f'Transformer\nSSIM: {ssim_trans:.3f}\nSilh: {sil_trans:.3f}\nCKA: {cka_val:.3f}', 'latent': z_trans_np,'recon': rec_trans.cpu().numpy()}
+    # vit metrics
+    ssim_trans = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_vit)["ssim"]
+    sil_trans = latent_analizer.compute_clustering_quality(z_vit_np, labels_remapped)
+    params_trans = latent_analizer.get_model_complexity(m_vit)
+    vit_flops = latent_analizer.compute_flops(m_vit)["mflops"] # MegaFLOPs
+
+    # cka to confront cnn and vit latent structure
+    cka_val = latent_analizer.cka_score(z_cnn_np, z_vit_np)
+
+    plotVisualizer.plot_latent_and_generation_comparison([
+        {'name': f'CNN\nSSIM: {ssim_conv:.3f}\nSilh: {sil_conv:.3f}\nMegaFLOPs={cnn_flops}\nParams count={params_conv:.2e}', 'latent': z_cnn_np,'recon': rec_cnn.cpu().numpy()},
+        {'name': f'Transformer\nSSIM: {ssim_trans:.3f}\nSilh: {sil_trans:.3f}\nCKA: {cka_val:.3f}\nMegaFLOPs={vit_flops}\nParams count={params_trans:.2e}', 'latent': z_vit_np,'recon': rec_vit.cpu().numpy()}
     ], imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 6: Rappresentazioni Locali vs Globali")
+    plt.show()
+
+    plotVisualizer.plot_training_history([
+        {"name": "Conv AE", "history": cnn_history},
+        {"name": "Transformer", "history": vit_history}
+    ])
     plt.show()

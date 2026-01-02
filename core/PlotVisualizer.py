@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
+import numpy as np
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-
-class LatentVisualizer:
+class PlotVisualizer:
     """
     Motore grafico flessibile per l'analisi delle Architetture Latenti.
     Supporta visualizzazioni 2D e 3D dinamiche.
@@ -17,7 +17,34 @@ class LatentVisualizer:
             raise ValueError("n_components deve essere 2 o 3.")
         self.n_components = n_components
 
-    def plot_comparison(self, models_data, original_imgs, labels, semantic_names, title=""):
+    def plot_training_history(self, histories, title="Training vs Validation Loss"):
+        """
+        Esegue il plot delle curve di loss per tutti i modelli forniti.
+        histories: lista di dizionari {'name': str, 'history': dict}
+        """
+        plt.figure(figsize=(12, 6))
+        colors = plt.cm.tab10(np.linspace(0, 1, len(histories)))
+
+        for i, entry in enumerate(histories):
+            name = entry['name']
+            h = entry['history']
+            epochs = range(1, len(h['train_loss']) + 1)
+
+            plt.plot(epochs, h['train_loss'], label=f'{name} (Train)',
+                     linestyle='--', color=colors[i], alpha=0.7)
+            plt.plot(epochs, h['val_loss'], label=f'{name} (Val)',
+                     linestyle='-', color=colors[i], linewidth=2)
+
+        plt.title(title, fontsize=16, fontweight='bold')
+        plt.xlabel('Epoche', fontsize=12)
+        plt.ylabel('Loss (MSE) log-scale', fontsize=12)
+        plt.yscale('log')  # Utile per vedere differenze tra loss molto piccole
+        plt.grid(True, which="both", ls="-", alpha=0.2)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        return plt.gcf()
+
+    def plot_latent_and_generation_comparison(self, models_data, original_imgs, labels, semantic_names, title=""):
         n_models = len(models_data)
         n_samples = len(original_imgs)
 
