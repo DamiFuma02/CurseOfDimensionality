@@ -5,7 +5,7 @@ from scipy.stats import spearmanr, entropy
 from sklearn.metrics import pairwise_distances, silhouette_score
 from sklearn.feature_selection import mutual_info_classif
 from skimage.metrics import structural_similarity as ssim
-
+from fvcore.nn import FlopCountAnalysis
 
 class LatentAnalizer:
     """
@@ -143,3 +143,37 @@ class LatentAnalizer:
                 elif isinstance(model.enc, torch.nn.Linear):
                     combined_w = model.enc.weight.detach().cpu().float()
             return np.linalg.matrix_rank(combined_w) if combined_w is not None else 0
+
+    @staticmethod
+    def compute_flops(model, input_size=(1, 1, 28, 28), verbose=False):
+        """
+        Slide 6: Analisi dell'efficienza computazionale.
+        Calcola il numero totale di Floating Point Operations (FLOPs) per un singolo forward pass.
+        Fondamentale per il confronto tra CNN e ViT (Self-Attention vs Convoluzione).
+        """
+        # Determina il device del modello
+        device = next(model.parameters()).device
+
+        # Crea un input di esempio basato sulla dimensione passata (es. FashionMNIST: 1, 1, 28, 28)
+        sample_input = torch.randn(input_size).to(device)
+
+        # Disabilita temporaneamente il tracking dei gradienti e mette in eval
+        model_state = model.training
+        model.eval()
+
+        # Analisi dei FLOPs tramite fvcore
+        fca = FlopCountAnalysis(model, sample_input)
+
+        if not verbose:
+            fca.unsupported_ops_warnings(False)  # Disattiva i warning per operazioni comuni
+
+        total_flops = fca.total()
+
+        # Ripristina lo stato precedente del modello
+        model.train(model_state)
+
+        return {
+            "total_flops": total_flops,
+            "mflops": total_flops / 1e6,  # MegaFLOPs
+            "gflops": total_flops / 1e9  # GigaFLOPs
+        }
