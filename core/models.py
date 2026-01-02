@@ -79,13 +79,14 @@ class ConvAE(nn.Module):
         self.dec = nn.Sequential(
             nn.Linear(latent_dim, 128*4*4), nn.LeakyReLU(0.2),
             nn.Unflatten(1, (128, 4, 4)),
-            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2),
-            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=0), nn.BatchNorm2d(32), nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=0), nn.BatchNorm2d(64), nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2),
             nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1, output_padding=1), nn.Sigmoid()
         )
     def forward(self, x):
         z = self.enc(x)
         return self.dec(z), z
+
 
 class TransformerAE(nn.Module):
     def __init__(self,data_dim=784, latent_dim=3, patch_size=4, embed_dim=128, num_heads=8, num_layers=2):
@@ -94,24 +95,49 @@ class TransformerAE(nn.Module):
         num_patches = (28 // patch_size) ** 2  # Per MNIST: (28/4)^2 = 49 patches
 
         self.patch_embed = nn.Linear(patch_size * patch_size, embed_dim)
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
-        # dropout=0 per confronto equo sulla capacità di ricostruzione
-        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0)
+
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches, embed_dim) * 0.02)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0,
+            dim_feedforward=512, activation='gelu'
+        )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.norm = nn.LayerNorm(embed_dim)
 
         self.to_latent = nn.Linear(embed_dim * num_patches, latent_dim)
 
-        self.from_latent = nn.Linear(latent_dim, embed_dim * num_patches)
+        self.from_latent = nn.Linear(latent_dim, 512)
         self.decoder = nn.Sequential(
-            nn.Linear(embed_dim * num_patches, 512), nn.LeakyReLU(0.2),
-            nn.Linear(512, data_dim), nn.Sigmoid()
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, data_dim),
+            nn.Sigmoid()
         )
 
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.decoder.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
     def forward(self, x):
+        b, c, h, w = x.shape
         p = self.patch_size
-        patches = x.unfold(2, p, p).unfold(3, p, p).reshape(x.shape[0], -1, p * p)
-        x_emb = self.patch_embed(patches) + self.pos_embed
-        x_trans = self.transformer_encoder(x_emb)
-        z = self.to_latent(x_trans.reshape(x_trans.shape[0], -1))
+
+        patches = x.unfold(2, p, p).unfold(3, p, p).reshape(b, -1, p * p)
+
+        x = self.patch_embed(patches) + self.pos_embed
+
+        x = self.transformer_encoder(x)
+        x = self.norm(x)  # LayerNorm fondamentale
+
+        z = self.to_latent(x.reshape(b, -1))
+
         rec = self.decoder(self.from_latent(z))
+
         return rec.view(-1, 1, 28, 28), z
