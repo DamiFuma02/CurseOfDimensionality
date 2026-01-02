@@ -65,7 +65,7 @@ def run_slide_2():
 
     # Linear AE
     model, _ = get_trained_model("linear_ae", LinearAE,
-                              lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                              lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                               latent_dim=LATENT_SPACE_DIM)
     with torch.no_grad():
         rec_ae, z_ae = model(imgs_eval.to(dm.device))
@@ -93,13 +93,13 @@ def run_slide_3():
     """Slide 3: Collasso della Profondità (Rango e Non-Linearità)"""
     print("\n--- Slide 3: Il Collasso Lineare ---")
     m_shallow, sl_loss_hist = get_trained_model("linear_ae", LinearAE,
-                              lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                              lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                               latent_dim=LATENT_SPACE_DIM)
     m_deep_lin, dl_loss_hist = get_trained_model("deep_linear_ae", DeepAE,
-                                   lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                                   lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                    latent_dim=LATENT_SPACE_DIM, non_linear=False)
     m_deep_nonlin, dnl_loss_hist = get_trained_model("deep_non_linear_ae", DeepAE,
-                                      lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                                      lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                       latent_dim=LATENT_SPACE_DIM, non_linear=True)
 
     with torch.no_grad():
@@ -139,13 +139,13 @@ def run_slide_4():
     """Slide 4: AE vs VAE (Continuità Topologica)"""
     print("\n--- Slide 4: AE vs VAE ---")
     m_ae, ae_history = get_trained_model("deep_non_linear_ae", DeepAE,
-                                      lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                                      lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                       latent_dim=LATENT_SPACE_DIM, non_linear=True)
     beta_vae_models = []
     beta_vae_training_history = []
     for beta in BETA_VALUES:
         beta_vae_model, history = get_trained_model(f"betavae_{beta}", VAE,
-                              lambda m, tl, vl: trainer.train_vae(m, tl, vl, epochs=EPOCHS, beta=beta),
+                              lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS,is_vae=True, beta=beta),
                               latent_dim=LATENT_SPACE_DIM)
         beta_vae_models.append(beta_vae_model)
         beta_vae_training_history.append(history)
@@ -198,16 +198,24 @@ def run_slide_5():
     """Slide 5: ConvAE vs MLP VAE (Bias Induttivo e CCA)"""
     print("\n--- Slide 5: ConvAE vs MLP VAE ---")
     # choosing the middle beta value
+    m_ae, ae_history = get_trained_model("deep_non_linear_ae", DeepAE,
+                                         lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
+                                         latent_dim=LATENT_SPACE_DIM, non_linear=True)
     m_betavae, betavae_history = get_trained_model(f"betavae_{BETA_VALUES[1]}", VAE,
-                              lambda m, tl, vl: trainer.train_vae(m, tl, vl, epochs=EPOCHS, beta=BETA_VALUES[1]),
+                              lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS,is_vae=True, beta=BETA_VALUES[1]),
                               latent_dim=LATENT_SPACE_DIM)
     m_conv, cnn_history = get_trained_model("conv_ae", ConvAE,
-                               lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                               lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():
+        rec_ae, z_ae = m_ae(imgs_eval.to(dm.device))
         rec_vae, mu_vae, _ = m_betavae(imgs_eval.to(dm.device))
         rec_conv, z_conv = m_conv(imgs_eval.to(dm.device))
+
+    ssim_ae = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_ae)["ssim"]
+    params_ae = latent_analizer.get_model_complexity(m_ae)
+    silh_ae = latent_analizer.compute_clustering_quality(z_ae.cpu().numpy(), labels_remapped)
 
     ssim_vae = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_vae)["ssim"]
     params_vae = latent_analizer.get_model_complexity(m_betavae)
@@ -218,6 +226,9 @@ def run_slide_5():
     silh_conv = latent_analizer.compute_clustering_quality(z_conv.cpu().numpy(), labels_remapped)
 
     plotVisualizer.plot_latent_and_generation_comparison([
+        {'name': f'Standard AE\nSSIM: {ssim_ae:.3f}\nSilh: {silh_ae:.3f}\nParams count={params_ae:.2e}',
+            'latent': z_ae.cpu().numpy(),
+            'recon': rec_ae.cpu().numpy()},
         {'name': f'beta={BETA_VALUES[1]} VAE\nSSIM: {ssim_vae:.3f}\nSilh: {silh_vae:.3f}\nParams count={params_vae:.2e}', 'latent': mu_vae.cpu().numpy(),
          'recon': rec_vae.cpu().numpy()},
         {'name': f'Conv AE\nSSIM: {ssim_conv:.3f}\nSilh: {silh_conv:.3f}\nParams count={params_conv:.2e}', 'latent': z_conv.cpu().numpy(),
@@ -225,6 +236,7 @@ def run_slide_5():
     ], imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 5: Efficienza Spaziale delle Convoluzioni")
     plt.show()
     plotVisualizer.plot_training_history([
+        {"name": "Standard AE", "history": ae_history},
         {"name": f"beta={BETA_VALUES[1]} VAE", "history": betavae_history},
         {"name": "Conv AE", "history": cnn_history}
     ])
@@ -236,10 +248,10 @@ def run_slide_6():
     """Slide 6: Transformer vs CNN (CKA e Attenzione Globale)"""
     print("\n--- Slide 6: Transformer vs CNN ---")
     m_cnn, cnn_history = get_trained_model("conv_ae", ConvAE,
-                               lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                               lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                latent_dim=LATENT_SPACE_DIM)
     m_vit, vit_history = get_trained_model("transformer_ae", TransformerAE,
-                                lambda m, tl, vl: trainer.train_standard(m, tl, vl, epochs=EPOCHS),
+                                lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                 latent_dim=LATENT_SPACE_DIM)
 
     with torch.no_grad():

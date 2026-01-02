@@ -37,7 +37,7 @@ class PlotVisualizer:
 
         plt.title(title, fontsize=16, fontweight='bold')
         plt.xlabel('Epoche', fontsize=12)
-        plt.ylabel('Loss (MSE) log-scale', fontsize=12)
+        plt.ylabel('Model Loss log-scale', fontsize=12)
         plt.yscale('log')  # Utile per vedere differenze tra loss molto piccole
         plt.grid(True, which="both", ls="-", alpha=0.2)
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
