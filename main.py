@@ -112,7 +112,7 @@ def run_slide_3():
     rank_dnl = latent_analizer.get_weight_rank(m_deep_nonlin)
     # confermando che la profondità senza attivazioni non aggiunge capacità espressiva.
     # Procrustes tra Shallow e Deep Linear per mostrare che sono lo stesso spazio
-    z_dl_aligned, proc_error = latent_analizer.procrustes(z_dl.cpu().numpy(), z_sl.cpu().numpy())
+    _, proc_error = latent_analizer.procrustes(z_dl.cpu().numpy(), z_sl.cpu().numpy())
 
     sl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_sl)
     dl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_dl)
@@ -121,7 +121,7 @@ def run_slide_3():
     plotVisualizer.plot_latent_and_generation_comparison([
         {'name': f'Shallow Linear AE\nMSE: {sl_reconstr_metrics["mse"]:.4f}\nSSIM: {sl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_sl}', 'latent': z_sl.cpu().numpy(),
          'recon': rec_sl.cpu().numpy()},
-        {'name': f'Deep Linear AE (Shallow Aligned)\nMSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {proc_error:.2e}', 'latent': z_dl_aligned,
+        {'name': f'Deep Linear AE\nMSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {proc_error:.2e}', 'latent': z_dl.cpu().numpy(),
          'recon': rec_dl.cpu().numpy()},
         {'name': f'Deep Non-Linear AE\nMSE: {dnl_reconstr_metrics["mse"]:.4f}\nSSIM: {dnl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dnl}', 'latent': z_dnl.cpu().numpy(),
          'recon': rec_dnl.cpu().numpy()}
