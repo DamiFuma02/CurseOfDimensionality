@@ -5,6 +5,8 @@ import numpy as np
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from core.constants import SEED
+
 
 class PlotVisualizer:
     """
@@ -44,60 +46,58 @@ class PlotVisualizer:
         plt.tight_layout()
         return plt.gcf()
 
-    def plot_latent_and_generation_comparison(self, models_data, original_imgs, labels, semantic_names, title=""):
+    def plot_latent_space(self, models_data, sample_images, labels, semantic_names, title="Latent Space Comparison", save_path="latent_space.png"):
+        """
+        Plots the 2D or 3D latent space for all models.
+        """
         n_models = len(models_data)
-        n_samples = len(original_imgs)
+        n_samples = len(sample_images)
+        # The first model's latent space helps determine sample count for stars if needed,
+        # but here we assume labels represents the full dataset.
 
-        # 1. CONFIGURAZIONE FIGURA
-        # Altezza dinamica in base al numero di modelli
-        fig = plt.figure(figsize=(22, 8 + 4 * n_models), facecolor='#fdfdfd')
+        fig = plt.figure(figsize=(22, 10), facecolor='#fdfdfd')
         cmap = plt.cm.get_cmap('turbo', 10)
 
-        # 2. GRIGLIA SUPERIORE: SPAZI LATENTI
-        gs_top = gridspec.GridSpec(1, n_models, figure=fig, bottom=0.45, top=0.85, wspace=0.15)
+        # Grid setup
+        gs = gridspec.GridSpec(1, n_models, figure=fig, left=0.05, right=0.9, wspace=0.15)
 
         for i, m in enumerate(models_data):
-            # Creazione asse: 3D solo se richiesto
             ax_kwargs = {'projection': '3d'} if self.n_components == 3 else {}
-            ax = fig.add_subplot(gs_top[0, i], **ax_kwargs)
+            ax = fig.add_subplot(gs[0, i], **ax_kwargs)
 
             z_raw = m['latent']
             dim_orig = z_raw.shape[1]
             is_linear = m.get('is_linear', False)
 
+            # Dimensionality Reduction Logic
             if dim_orig == self.n_components:
                 z = z_raw
                 tech_name = "Direct"
             elif is_linear:
-                # PCA per modelli lineari
                 z = PCA(n_components=self.n_components).fit_transform(z_raw)
                 tech_name = "PCA"
             else:
-                # t-SNE per modelli non lineari
-                z = TSNE(n_components=self.n_components, perplexity=30, random_state=42, init='pca',
-                         learning_rate='auto').fit_transform(z_raw)
+                z = TSNE(n_components=self.n_components, perplexity=30, random_state=SEED,
+                         init='pca', learning_rate='auto').fit_transform(z_raw)
                 tech_name = "t-SNE"
 
             subtitle = f"{m['name']}\n"
             if dim_orig != self.n_components:
                 subtitle += f"({tech_name} {dim_orig}D -> {self.n_components}D)"
 
-            # --- PLOTTING ---
+            # Plotting
             coords = [z[:, j] for j in range(self.n_components)]
-            sample_coords = [z[:n_samples, j] for j in range(self.n_components)]
 
-            # A. Nuvola di punti (Background)
+            # Background points
             ax.scatter(*coords, c=labels, cmap=cmap, s=35, alpha=0.25, edgecolors='none')
-
-            # B. Campioni Evidenziati (Stelle)
+            # sample points with labels
+            sample_coords = [z[:n_samples, j] for j in range(self.n_components)]
             ax.scatter(*sample_coords, c='black', marker='*', s=200, edgecolors='white', linewidth=1, zorder=10)
-
-            # C. Etichette Numeriche
             for idx in range(n_samples):
                 point = [z[idx, j] for j in range(self.n_components)]
                 ax.text(*point, f" {idx + 1}", fontsize=12, fontweight='black', zorder=11)
 
-            # D. Styling specifico per dimensione
+            # Styling
             ax.set_title(subtitle, fontweight='bold', fontsize=14, pad=15)
             ax.set_xticks([])
             ax.set_yticks([])
@@ -106,42 +106,62 @@ class PlotVisualizer:
                 ax.set_zticks([])
                 ax.set_box_aspect((1, 1, 1))
                 ax.view_init(elev=20, azim=45)
-                # Rende i piani trasparenti
                 ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
                 ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
                 ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
             else:
                 ax.set_aspect('equal', 'datalim')
-                # Rimuove i bordi per un look pulito in 2D
-                for spine in ax.spines.values(): spine.set_visible(False)
+                for spine in ax.spines.values():
+                    spine.set_visible(False)
 
-        # 3. LEGENDA (COLORBAR)
-        cbar_ax = fig.add_axes([0.93, 0.55, 0.01, 0.30])
+        # Colorbar Legend
+        cbar_ax = fig.add_axes([0.92, 0.25, 0.015, 0.5])
         sm = cm.ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=9))
         fig.colorbar(sm, cax=cbar_ax, ticks=range(10)).ax.set_yticklabels(semantic_names, fontweight='bold')
 
-        # 4. GRIGLIA INFERIORE: RICOSTRUZIONI
-        gs_bottom = gridspec.GridSpec(n_models + 1, n_samples, figure=fig, top=0.38, bottom=0.05, hspace=0.5,
-                                      wspace=0.1)
+        plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
+
+        # Save and return
+        plt.savefig(f"{save_path}/latent_space.png", bbox_inches='tight', dpi=300)
+        return fig
+
+    def plot_sample_reconstructions(self, models_data, original_imgs, title="Generation Comparison", save_path="reconstructions.png"):
+        """
+        Plots a comparison between original images and reconstructions from different models.
+        """
+        n_models = len(models_data)
+        n_samples = len(original_imgs)
+
+        fig = plt.figure(figsize=(22, 2 + 2 * n_models), facecolor='#fdfdfd')
+
+        # Grid: Rows = Original + Models
+        gs = gridspec.GridSpec(n_models + 1, n_samples, figure=fig, hspace=0.5, wspace=0.1)
+
         for j in range(n_samples):
-            # Originali
-            ax_orig = fig.add_subplot(gs_bottom[0, j])
+            # 1. Plot Originals (Top Row)
+            ax_orig = fig.add_subplot(gs[0, j])
             ax_orig.imshow(original_imgs[j].squeeze(), cmap='bone')
             ax_orig.set_title(f"S{j + 1}", fontsize=11, fontweight='bold')
             ax_orig.axis('off')
+
             if j == 0:
-                ax_orig.text(-15, 14, "Originale", fontsize=12, fontweight='bold', ha='right', va='center',
-                             color='#34495e')
+                ax_orig.text(-15, 14, "Originale", fontsize=12, fontweight='bold',
+                             ha='right', va='center', color='#34495e')
 
-            # Ricostruzioni
+            # 2. Plot Reconstructions (Subsequent Rows)
             for i, m in enumerate(models_data):
-                ax_recon = fig.add_subplot(gs_bottom[i + 1, j])
-                ax_recon.imshow(m['recon'][j].reshape(28, 28), cmap='bone')
+                ax_recon = fig.add_subplot(gs[i + 1, j])
+                # Assuming MNIST-like 28x28. If different, adjust .reshape() or use .squeeze()
+                recon_img = m['recon'][j].reshape(28, 28)
+                ax_recon.imshow(recon_img, cmap='bone')
                 ax_recon.axis('off')
+
                 if j == 0:
-                    ax_recon.text(-15, 14, m['name'], fontsize=12, fontweight='bold', ha='right', va='center',
-                                  color='#34495e')
+                    ax_recon.text(-15, 14, m['name'], fontsize=12, fontweight='bold',
+                                  ha='right', va='center', color='#34495e')
 
-        plt.suptitle(title, fontsize=22, fontweight='bold', y=0.99)
+        plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
+        # Save and return
+        plt.savefig(f"{save_path}/sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
         return fig

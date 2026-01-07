@@ -6,6 +6,7 @@ from sklearn.metrics import pairwise_distances, silhouette_score
 from sklearn.feature_selection import mutual_info_classif
 from skimage.metrics import structural_similarity as ssim
 from fvcore.nn import FlopCountAnalysis
+from core.constants import SEED
 
 class LatentAnalizer:
     """
@@ -109,7 +110,7 @@ class LatentAnalizer:
         num_latents = latent_codes.shape[1]
         mi_scores = []
         for i in range(num_latents):
-            mi = mutual_info_classif(latent_codes[:, i:i + 1], labels, random_state=42)[0]
+            mi = mutual_info_classif(latent_codes[:, i:i + 1], labels, random_state=SEED)[0]
             mi_scores.append(mi)
 
         mi_sorted = sorted(mi_scores, reverse=True)

@@ -1,3 +1,6 @@
+import os
+from os.path import isdir
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,11 +11,11 @@ from core.DataManager import DataManager
 from core.models import LinearAE, DeepAE, VAE, ConvAE, TransformerAE
 from core.ModelTrainer import ModelTrainer
 from core.PlotVisualizer import PlotVisualizer
+from core.constants import SEED, N_COMPONENTS, LATENT_SPACE_DIM, EPOCHS, STATIC_ROOT
 
 # ==========================================
 # CONFIGURAZIONE GLOBALE E DETERMINISMO
 # ==========================================
-SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 if torch.cuda.is_available():
@@ -27,10 +30,7 @@ labels_remapped = dm.remap_labels(lbls_eval)
 N_SAMPLES = 8
 
 MODELS_CACHE = {}
-EPOCHS = 15  # Ridotto per brevità, usa 20+ per risultati ottimali
-LATENT_SPACE_DIM = 3
-N_COMPONENTS = 3
-assert N_COMPONENTS <= LATENT_SPACE_DIM
+
 
 plotVisualizer = PlotVisualizer(n_components=N_COMPONENTS)
 latent_analizer = LatentAnalizer()
@@ -81,11 +81,15 @@ def run_slide_2():
     ae_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(x_flat,rec_ae)
     pca_align_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(x_flat,rec_pca_aligned)
 
-    plotVisualizer.plot_latent_and_generation_comparison([
+    models_data = [
         {'name': f'PCA\nMSE: {pca_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_reconstr_metrics["ssim"]:.3f}', 'latent': z_pca, 'recon': rec_pca},
         {'name': f'Linear AE (RAW)\nMSE: {ae_reconstr_metrics["mse"]:.4f}\nSSIM: {ae_reconstr_metrics["ssim"]:.3f}', 'latent': z_ae.cpu().numpy(),'recon': rec_ae.cpu().numpy()},
         {'name': f'PCA (AE Aligned)\nMSE: {pca_align_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_align_reconstr_metrics["ssim"]:.3f}\nProcrustes Err: {proc_error:.2e}', 'latent': z_pca_aligned,'recon': rec_pca_aligned.cpu().numpy()}
-    ], imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="Slide 2: Isomorfismo PCA e Linear AE")
+    ]
+    save_path=f"{STATIC_ROOT}/slide_2"
+    os.makedirs(save_path, exist_ok=True)
+    plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names, title="PCA vs Linear AE Latent Space Isomorphism", save_path=save_path)
+    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES], title="PCA vs Linear AE Reconstruction Test", save_path=save_path)
     plt.show()
 
 
