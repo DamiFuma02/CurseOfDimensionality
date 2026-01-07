@@ -2,34 +2,53 @@ import torch
 import torch.nn as nn
 
 
+def fc_block(in_f, out_f, non_linear=True, use_bn=True, last_layer=False, output_act=None):
+    """
+    Crea un blocco Fully Connected standard.
+    - non_linear: se False, restituisce solo nn.Linear (per modelli lineari)
+    - use_bn: se aggiungere BatchNorm1d
+    - last_layer: se è l'ultimo layer dello stadio (es. la proiezione latente), spesso non vuole BN/Act
+    - output_act: attivazione specifica (es. Sigmoid) per l'output finale del decoder
+    """
+    layers = [nn.Linear(in_f, out_f, bias=not use_bn)]
+
+    if non_linear and not last_layer:
+        if use_bn:
+            layers.append(nn.BatchNorm1d(out_f))
+        layers.append(nn.LeakyReLU(0.2))
+
+    if output_act is not None:
+        layers.append(output_act)
+
+    return nn.Sequential(*layers)
+
 class LinearAE(nn.Module):
     def __init__(self,data_dim=784, latent_dim=3):
         super().__init__()
-        self.enc = nn.Linear(data_dim, latent_dim, bias=False)
-        self.dec = nn.Linear(latent_dim, data_dim, bias=False)
+        self.enc = fc_block(data_dim, latent_dim, non_linear=False)
+        self.dec = fc_block(latent_dim, data_dim, non_linear=False)
     def forward(self, x):
         z = self.enc(x.view(x.size(0), -1))
         out = self.dec(z).view(-1, 1, 28, 28)
         return out, z
 
 class DeepAE(nn.Module):
-    def __init__(self,data_dim=784, latent_dim=3, non_linear=True):
+    def __init__(self, data_dim=784, latent_dim=3, non_linear=True):
         super().__init__()
-        act = nn.LeakyReLU(0.2) if non_linear else nn.Identity()
-        def block(in_f, out_f):
-            layers = [nn.Linear(in_f, out_f)]
-            if non_linear: layers.append(nn.BatchNorm1d(out_f))
-            layers.append(act)
-            return nn.Sequential(*layers)
-
+        # Encoder
         self.enc = nn.Sequential(
-            block(data_dim, 512), block(512, 256), block(256, 128),
-            nn.Linear(128, latent_dim)
+            fc_block(data_dim, 512, non_linear),
+            fc_block(512, 256, non_linear),
+            fc_block(256, 128, non_linear),
+            fc_block(128, latent_dim, non_linear, last_layer=True)
         )
-        output_act = nn.Sigmoid() if non_linear else nn.Identity()
+        # Decoder
+        out_act = nn.Sigmoid() if non_linear else None
         self.dec = nn.Sequential(
-            block(latent_dim, 128), block(128, 256), block(256, 512),
-            nn.Linear(512, data_dim), output_act
+            fc_block(latent_dim, 128, non_linear),
+            fc_block(128, 256, non_linear),
+            fc_block(256, 512, non_linear),
+            fc_block(512, data_dim, non_linear, last_layer=True, output_act=out_act)
         )
     def forward(self, x):
         z = self.enc(x.view(x.size(0), -1))
@@ -39,20 +58,19 @@ class DeepAE(nn.Module):
 class VAE(nn.Module):
     def __init__(self, data_dim=784, latent_dim=3):
         super().__init__()
-        self._data_dim = data_dim
         act = nn.LeakyReLU(0.2) # Uniformato a DeepAE
         self.encoder = nn.Sequential(
-            nn.Linear(data_dim, 512), nn.BatchNorm1d(512), act,
-            nn.Linear(512, 256), nn.BatchNorm1d(256), act,
-            nn.Linear(256, 128), nn.BatchNorm1d(128), act
+            fc_block(data_dim, 512),
+            fc_block(512, 256),
+            fc_block(256, 128)
         )
-        self.fc_mu = nn.Linear(128, latent_dim)
-        self.fc_logvar = nn.Linear(128, latent_dim)
+        self.fc_mu = fc_block(128, latent_dim, last_layer=True)
+        self.fc_logvar = fc_block(128, latent_dim, last_layer=True)
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 128), nn.BatchNorm1d(128), act,
-            nn.Linear(128, 256), nn.BatchNorm1d(256), act,
-            nn.Linear(256, 512), nn.BatchNorm1d(512), act,
-            nn.Linear(512, data_dim), nn.Sigmoid()
+            fc_block(latent_dim, 128),
+            fc_block(128, 256),
+            fc_block(256, 512),
+            fc_block(512, data_dim, last_layer=True, output_act=nn.Sigmoid())
         )
 
     def reparameterize(self, mu, logvar):
@@ -61,7 +79,7 @@ class VAE(nn.Module):
         return mu + eps*std
 
     def forward(self, x):
-        h = self.encoder(x.view(-1, self._data_dim))
+        h = self.encoder(x.view(x.size(0), -1))
         mu, logvar = self.fc_mu(h), self.fc_logvar(h)
         z = self.reparameterize(mu, logvar)
         out = self.decoder(z).view(-1, 1, 28, 28)
@@ -70,22 +88,34 @@ class VAE(nn.Module):
 class ConvAE(nn.Module):
     def __init__(self, latent_dim=3):
         super().__init__()
-        self.enc = nn.Sequential(
-            nn.Conv2d(1, 32, 3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), nn.BatchNorm2d(128), nn.LeakyReLU(0.2),
-            nn.Flatten(), nn.Linear(128*4*4, latent_dim)
+        # O = floor((I+2P-KS)/S)+1
+        # input (B,1,28,28) batch of B images with 1 channel and 28 x 28 pixels
+        self.conv_enc = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(128), nn.LeakyReLU(0.2), # (B,128,4,4)
         )
-        self.dec = nn.Sequential(
-            nn.Linear(latent_dim, 128*4*4), nn.LeakyReLU(0.2),
+        self.fc_enc = nn.Sequential(
+            nn.Flatten(),  # (B,128*4*4)
+            fc_block(128*4*4, 128), # only 1 layer to reduce the number of parameters
+            fc_block(128, latent_dim, last_layer=True)  # match the latent layer dimensionality with other AEs
+        )
+        self.fc_dec = nn.Sequential(
+            fc_block(latent_dim, 128),
+            fc_block(128, 128*4*4, last_layer=True),
             nn.Unflatten(1, (128, 4, 4)),
-            nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=0), nn.BatchNorm2d(64), nn.LeakyReLU(0.2),
-            nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2),
-            nn.ConvTranspose2d(32, 1, 3, stride=2, padding=1, output_padding=1), nn.Sigmoid()
         )
+        # (B,128,4,4)
+        self.conv_dec = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=0), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
+            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1), nn.Sigmoid() # (B,1,28,28)
+        )
+
     def forward(self, x):
-        z = self.enc(x)
-        return self.dec(z), z
+        z = self.fc_enc(self.conv_enc(x))
+        out = self.conv_dec(self.fc_dec(z))
+        return out, z
 
 
 class TransformerAE(nn.Module):
