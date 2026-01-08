@@ -2,13 +2,15 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
 
 from core.LatentAnalizer import LatentAnalizer
 from core.DataManager import DataManager
 from core.models import LinearAE, DeepAE, VAE, ConvAE, TransformerAE
 from core.ModelTrainer import ModelTrainer
 from core.PlotVisualizer import PlotVisualizer
-from core.constants import SEED, N_COMPONENTS, LATENT_SPACE_DIM, EPOCHS, STATIC_ROOT
+from core.constants import SEED, N_COMPONENTS, LATENT_SPACE_DIM, EPOCHS, STATIC_ROOT, BATCH_SIZE, LIMIT_SAMPLES, \
+    N_SAMPLES
 
 # ==========================================
 # CONFIGURAZIONE GLOBALE E DETERMINISMO
@@ -18,13 +20,12 @@ np.random.seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
 
-dm = DataManager(batch_size=128, limit_samples=2000)
+dm = DataManager(batch_size=BATCH_SIZE, limit_samples=LIMIT_SAMPLES)
 trainer = ModelTrainer(dm.device)
 train_loader, eval_loader = dm.get_loaders()
 
 imgs_eval, lbls_eval = next(iter(eval_loader))
 labels_remapped = dm.remap_labels(lbls_eval)
-N_SAMPLES = 8
 
 MODELS_CACHE = {}
 
@@ -45,6 +46,29 @@ def get_trained_model(model_key, model_class, train_fn, **kwargs):
         MODELS_CACHE[model_key] = {'model': model, 'history': history}
     return MODELS_CACHE[model_key]['model'], MODELS_CACHE[model_key]['history']
 
+def get_trained_classifier(model_key, ae_model, is_vae=False):
+    clf_key = f"clf_{model_key}"
+    if clf_key not in MODELS_CACHE:
+        print(f"[Training] Classificatore lineare per: {model_key}")
+        clf, history = trainer.train_classifier(
+            ae_model, train_loader, eval_loader,
+            latent_dim=LATENT_SPACE_DIM, epochs=EPOCHS, is_vae=is_vae
+        )
+        MODELS_CACHE[clf_key] = {'model': clf, 'history': history}
+    return MODELS_CACHE[clf_key]['model'], MODELS_CACHE[clf_key]['history']
+
+def get_predictions(ae_model, clf, is_vae=False):
+    ae_model.eval()
+    clf.eval()
+    with torch.no_grad():
+        if is_vae:
+            _, mu, sigma = ae_model(imgs_eval.to(dm.device))
+            z = mu
+        else:
+            _, z = ae_model(imgs_eval.to(dm.device))
+        logits = clf(z)
+        preds = torch.argmax(logits, dim=1).cpu().numpy()
+    return preds
 
 # ==========================================
 # ESECUZIONE SLIDE
@@ -58,24 +82,24 @@ def run_slide_2():
     z_pca = pca.fit_transform(x_flat - np.mean(x_flat, axis=0))
     rec_pca = pca.inverse_transform(z_pca) + np.mean(x_flat, axis=0)
 
-    m_shallow, sl_loss_hist = get_trained_model("linear_ae", LinearAE,
+    m_sl, sl_loss_hist = get_trained_model("linear_ae", LinearAE,
                               lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                               latent_dim=LATENT_SPACE_DIM)
-    m_deep_lin, dl_loss_hist = get_trained_model("deep_linear_ae", DeepAE,
+    m_dl, dl_loss_hist = get_trained_model("deep_linear_ae", DeepAE,
                                    lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                    latent_dim=LATENT_SPACE_DIM, non_linear=False)
-    m_deep_nonlin, dnl_loss_hist = get_trained_model("deep_non_linear_ae", DeepAE,
+    m_dnl, dnl_loss_hist = get_trained_model("deep_non_linear_ae", DeepAE,
                                       lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                       latent_dim=LATENT_SPACE_DIM, non_linear=True)
 
     with torch.no_grad():
-        rec_sl, z_sl = m_shallow(imgs_eval.to(dm.device))
-        rec_dl, z_dl = m_deep_lin(imgs_eval.to(dm.device))
-        rec_dnl, z_dnl = m_deep_nonlin(imgs_eval.to(dm.device))
+        rec_sl, z_sl = m_sl(imgs_eval.to(dm.device))
+        rec_dl, z_dl = m_dl(imgs_eval.to(dm.device))
+        rec_dnl, z_dnl = m_dnl(imgs_eval.to(dm.device))
 
-    rank_sl = latent_analizer.get_weight_rank(m_shallow) # rango non puo superare latent_dim,
-    rank_dl = latent_analizer.get_weight_rank(m_deep_lin) # rango non puo superare latent_dim,
-    rank_dnl = latent_analizer.get_weight_rank(m_deep_nonlin)
+    rank_sl = latent_analizer.get_weight_rank(m_sl) # rango non puo superare latent_dim,
+    rank_dl = latent_analizer.get_weight_rank(m_dl) # rango non puo superare latent_dim,
+    rank_dnl = latent_analizer.get_weight_rank(m_dnl)
     # confermando che la profondità senza attivazioni non aggiunge capacità espressiva.
     # Procrustes tra Shallow e Deep Linear per mostrare che sono lo stesso spazio
     z_pca_sl_aligned, pca_sl_proc_error = latent_analizer.procrustes(z_pca, z_sl.cpu().numpy())
@@ -85,26 +109,43 @@ def run_slide_2():
     sl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_sl)
     dl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_dl)
     dnl_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_dnl)
+    # --- CLASSIFIERS (Linear Probing) ---
+    train_imgs, train_lbls = next(iter(torch.utils.data.DataLoader(train_loader.dataset, batch_size=BATCH_SIZE)))
+    z_train_pca = pca.transform(train_imgs.view(len(train_imgs), -1).numpy() - np.mean(x_flat, axis=0))
+    pca_clf = LogisticRegression(max_iter=1000).fit(z_train_pca, train_lbls.numpy())
+    pred_pca = pca_clf.predict(z_pca)
+    pca_acc = (pred_pca == lbls_eval.numpy()).mean() * 100
+    c_sl, sl_clf_hist = get_trained_classifier("linear_ae", m_sl)
+    pred_sl = get_predictions(m_sl, c_sl)
+    c_dl, dl_clf_hist = get_trained_classifier("deep_linear_ae", m_dl)
+    pred_dl = get_predictions(m_dl, c_dl)
+    c_dnl, dnl_clf_hist = get_trained_classifier("deep_non_linear_ae", m_dnl)
+    pred_dnl = get_predictions(m_dnl, c_dnl)
+
     models_data = [
         {   'name': 'PCA',
             'latent': z_pca_sl_aligned,
             'recon': rec_pca,
-            "metrics": f'MSE: {pca_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_reconstr_metrics["ssim"]:.3f}\nProc. Err vs Shallow: {pca_sl_proc_error:.2e}'},
+            'predicted_labels': pred_pca,
+            "metrics": f'MSE: {pca_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_reconstr_metrics["ssim"]:.3f}\nProc. Err vs Shallow: {pca_sl_proc_error:.2e}\nAcc: {pca_acc:.1f}%'},
         {   'name': 'Shallow Linear AE',
             'latent': z_sl.cpu().numpy(),
             'recon': rec_sl.cpu().numpy(),
-            "metrics":f'MSE: {sl_reconstr_metrics["mse"]:.4f}\nSSIM: {sl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_sl}'},
+            'predicted_labels': pred_sl,
+            "metrics":f'MSE: {sl_reconstr_metrics["mse"]:.4f}\nSSIM: {sl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_sl}\nAcc: {sl_clf_hist["val_acc"][-1]:.1f}%'},
         {   'name': 'Deep Linear AE',
             'latent': z_dl_sl_aligned,
             'recon': rec_dl.cpu().numpy(),
-            "metrics": f'MSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {dl_sl_proc_error:.2e}'},
+            'predicted_labels': pred_dl,
+            "metrics": f'MSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {dl_sl_proc_error:.2e}\nAcc: {dl_clf_hist["val_acc"][-1]:.1f}%'},
         {   'name': 'Deep Non-Linear AE',
             'latent': z_dnl.cpu().numpy(),
             'recon': rec_dnl.cpu().numpy(),
-            "metrics":f'MSE: {dnl_reconstr_metrics["mse"]:.4f}\nSSIM: {dnl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dnl}'}
+            'predicted_labels': pred_dnl,
+            "metrics":f'MSE: {dnl_reconstr_metrics["mse"]:.4f}\nSSIM: {dnl_reconstr_metrics["ssim"]:.3f}\nWeights Rank: {rank_dnl}\nAcc: {dnl_clf_hist["val_acc"][-1]:.1f}%'}
     ]
     plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_2")
-    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES],save_path=f"{STATIC_ROOT}/slide_2")
+    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES], labels_remapped[:N_SAMPLES], dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_2")
     plt.show()
     plotVisualizer.plot_training_history([
         {'name': 'Shallow Linear AE', 'history': sl_loss_hist},
@@ -119,14 +160,26 @@ def run_slide_3():
     m_ae, ae_history = get_trained_model("deep_non_linear_ae", DeepAE,
                                       lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
                                       latent_dim=LATENT_SPACE_DIM, non_linear=True)
+    c_ae, ae_clf_hist = get_trained_classifier("deep_non_linear_ae", m_ae)
+    pred_ae = get_predictions(m_ae, c_ae)
     beta_vae_models = []
     beta_vae_training_history = []
+    clf_beta_vae_training_history = []
+    clf_pred_vae_list = []
+    acc_vae_list = []
     for beta in BETA_VALUES:
         beta_vae_model, history = get_trained_model(f"betavae_{beta}", VAE,
                               lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS,is_vae=True, beta=beta),
                               latent_dim=LATENT_SPACE_DIM)
+        clf_vae, v_clf_hist = get_trained_classifier(f"betavae_{beta}", beta_vae_model, is_vae=True)
+        pred_vae = get_predictions(beta_vae_model, clf_vae, is_vae=True)
+
         beta_vae_models.append(beta_vae_model)
         beta_vae_training_history.append(history)
+        clf_beta_vae_training_history.append(v_clf_hist)
+        clf_pred_vae_list.append(pred_vae)
+        acc_vae_list.append(v_clf_hist["val_acc"][-1])
+
     rec_list = []
     latent_list = []
     with torch.no_grad():
@@ -155,17 +208,19 @@ def run_slide_3():
         {   'name': f'Standard AE',
             'latent': z_ae_np,
             'recon': rec_ae.cpu().numpy() ,
-            "metrics": f'SSIM: {ae_reconstr_metrics["ssim"]:.3f}\nMIG: {mig_ae:.3f}\nSilh: {sil_ae:.3f}' + (f"\nAligned with lowest beta VAE\nProc. Err={proc_error}" if lower_beta_found else '')},
+            'predicted_labels': pred_ae,
+            "metrics": f'SSIM: {ae_reconstr_metrics["ssim"]:.3f}\nMIG: {mig_ae:.3f}\nSilh: {sil_ae:.3f}\nAcc: {ae_clf_hist["val_acc"][-1]:.1f}%' + (f"\nAligned with lowest beta VAE\nProc. Err={proc_error}" if lower_beta_found else '')},
     ]
     models_data.extend([
         {   'name': f'beta={beta} VAE',
             'latent': latent_list[i],
             'recon': rec_list[i],
-            "metrics":f'SSIM={ssim_scores[i]:.3f}\nMIG: {mig_scores[i]:.3f}\nSilh: {sil_scores[i]:.3f}'}
+            'predicted_labels': clf_pred_vae_list[i],
+            "metrics":f'SSIM={ssim_scores[i]:.3f}\nMIG: {mig_scores[i]:.3f}\nSilh: {sil_scores[i]:.3f}\nAcc: {acc_vae_list[i]:.1f}%'}
         for i, beta in enumerate(BETA_VALUES)
     ])
     plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_3")
-    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES],save_path=f"{STATIC_ROOT}/slide_3")
+    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES], labels_remapped[:N_SAMPLES], dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_3")
     plt.show()
 
     models_data = [
@@ -200,6 +255,15 @@ def run_slide_4():
         rec_conv, z_conv = m_conv(imgs_eval.to(dm.device))
         rec_vit, z_vit = m_vit(imgs_eval.to(dm.device))
 
+    c_ae, h_ae = get_trained_classifier("deep_non_linear_ae", m_ae)
+    c_betavae, h_vae = get_trained_classifier(f"betavae_{BETA_VALUES[1]}", m_betavae, is_vae=True)
+    c_conv, h_conv = get_trained_classifier("conv_ae", m_conv)
+    c_vit, h_vit = get_trained_classifier("transformer_ae", m_vit)
+    p_ae = get_predictions(m_ae, c_ae)
+    p_betavae = get_predictions(m_betavae, c_betavae, is_vae=True)
+    p_conv = get_predictions(m_conv, c_conv)
+    p_vit = get_predictions(m_vit, c_vit)
+
     ssim_ae = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_ae)["ssim"]
     params_ae = latent_analizer.get_model_complexity(m_ae)
     silh_ae = latent_analizer.compute_clustering_quality(z_ae.cpu().numpy(), labels_remapped)
@@ -226,23 +290,27 @@ def run_slide_4():
         {   'name': f'Standard AE',
             'latent': z_ae.cpu().numpy(),
             'recon': rec_ae.cpu().numpy(),
-            "metrics":f'SSIM: {ssim_ae:.3f}\nSilh: {silh_ae:.3f}\nMegaFLOPs={flops_ae}\nParams count={params_ae:.2e}'},
+            'predicted_labels': p_ae,
+            "metrics":f'SSIM: {ssim_ae:.3f}\nSilh: {silh_ae:.3f}\nMegaFLOPs={flops_ae}\nParams count={params_ae:.2e}\nAcc: {h_ae["val_acc"][-1]:.1f}%'},
         {   'name': f'beta={BETA_VALUES[1]} VAE',
             'latent': mu_vae.cpu().numpy(),
             'recon': rec_vae.cpu().numpy(),
-            "metrics": f'SSIM: {ssim_vae:.3f}\nSilh: {silh_vae:.3f}\nMegaFLOPs={flops_vae}\nParams count={params_vae:.2e}'},
+            'predicted_labels': p_betavae,
+            "metrics": f'SSIM: {ssim_vae:.3f}\nSilh: {silh_vae:.3f}\nMegaFLOPs={flops_vae}\nParams count={params_vae:.2e}\nAcc: {h_vae["val_acc"][-1]:.1f}%'},
         {   'name': f'Conv AE',
             'latent': z_conv.cpu().numpy(),
             'recon': rec_conv.cpu().numpy(),
-            "metrics": f'SSIM: {ssim_conv:.3f}\nSilh: {silh_conv:.3f}\nMegaFLOPs={flops_conv}\nParams count={params_conv:.2e}'},
+            'predicted_labels': p_conv,
+            "metrics": f'SSIM: {ssim_conv:.3f}\nSilh: {silh_conv:.3f}\nMegaFLOPs={flops_conv}\nParams count={params_conv:.2e}\nAcc: {h_conv["val_acc"][-1]:.1f}%'},
         {
             'name': f'Transformer',
             'latent': z_vit.cpu().numpy(),
             'recon': rec_vit.cpu().numpy(),
-            "metrics": f'SSIM: {ssim_trans:.3f}\nSilh: {sil_trans:.3f}\nMegaFLOPs={flops_vit}\nParams count={params_trans:.2e}'}
+            'predicted_labels': p_vit,
+            "metrics": f'SSIM: {ssim_trans:.3f}\nSilh: {sil_trans:.3f}\nMegaFLOPs={flops_vit}\nParams count={params_trans:.2e}\nAcc: {h_vit["val_acc"][-1]:.1f}%'}
     ]
     plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_4")
-    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES],save_path=f"{STATIC_ROOT}/slide_4")
+    plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES], labels_remapped[:N_SAMPLES], dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_4")
     plt.show()
     plotVisualizer.plot_training_history([
         {"name": "Standard AE", "history": ae_history},

@@ -1,8 +1,6 @@
-import os
 from datetime import datetime
 from pathlib import Path
-from random import random, randint
-
+import torch
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
@@ -99,10 +97,11 @@ class PlotVisualizer:
             coords = [z[:, j] for j in range(self.n_components)]
 
             # Background points
-            ax.scatter(*coords, c=labels, cmap=cmap, s=35, alpha=0.25, edgecolors='none')
+            ax.scatter(*coords, c=labels, cmap=cmap, s=35, alpha=0.20, edgecolors='none')
             # sample points with labels
+            sample_preds = model_info.get('predicted_labels', labels)[:n_samples]
             sample_coords = [z[:n_samples, j] for j in range(self.n_components)]
-            ax.scatter(*sample_coords, c='black', marker='*', s=200, edgecolors='white', linewidth=1, zorder=10)
+            ax.scatter(*sample_coords, c=sample_preds, marker='*', s=300, edgecolors='white', linewidth=1, zorder=10)
             for idx in range(n_samples):
                 point = [z[idx, j] for j in range(self.n_components)]
                 ax.text(*point, f" {idx + 1}", fontsize=12, fontweight='black', zorder=11)
@@ -140,7 +139,7 @@ class PlotVisualizer:
         plt.savefig(f"{save_path}/latent_space.png", bbox_inches='tight', dpi=300)
         return fig
 
-    def plot_sample_reconstructions(self, models_data, original_imgs, save_path=STATIC_ROOT):
+    def plot_sample_reconstructions(self, models_data, original_imgs, labels, semantic_names, save_path=STATIC_ROOT):
         """
         Plots a comparison between original images and reconstructions from different models.
         """
@@ -153,10 +152,12 @@ class PlotVisualizer:
         gs = gridspec.GridSpec(n_models + 1, n_samples, figure=fig, hspace=0.5, wspace=0.1)
 
         for j in range(n_samples):
+            real_label = labels[j].item() if torch.is_tensor(labels) else labels[j]
+            real_name = semantic_names[real_label]
             # 1. Plot Originals (Top Row)
             ax_orig = fig.add_subplot(gs[0, j])
             ax_orig.imshow(original_imgs[j].squeeze(), cmap='bone')
-            ax_orig.set_title(f"S{j + 1}", fontsize=11, fontweight='bold')
+            ax_orig.set_title(f"S{j + 1}:{real_name}", fontsize=11, fontweight='bold')
             ax_orig.axis('off')
 
             if j == 0:
@@ -169,6 +170,11 @@ class PlotVisualizer:
                 # Assuming MNIST-like 28x28. If different, adjust .reshape() or use .squeeze()
                 recon_img = model_info['recon'][j].reshape(28, 28)
                 ax_recon.imshow(recon_img, cmap='bone')
+                pred_label = model_info['predicted_labels'][j]
+                pred_name = semantic_names[pred_label]
+                is_correct = (int(pred_label) == int(real_label))
+                text_color = '#27ae60' if is_correct else '#e74c3c'  # Green vs Red
+                ax_recon.set_title(f"Pred: {pred_name}", fontsize=9, fontweight='bold', color=text_color)
                 ax_recon.axis('off')
 
                 if j == 0:
