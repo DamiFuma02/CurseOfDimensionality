@@ -44,3 +44,52 @@ class ModelTrainer:
             history['train_loss'].append(train_loss / len(train_loader))
             history['val_loss'].append(val_loss / len(val_loader))
         return model, history
+
+    def train_classifier(self, ae_model, train_loader, val_loader, latent_dim, epochs=10, lr=1e-3, is_vae=False):
+        ae_model.eval()  # Freeze the Autoencoder
+        classifier = nn.Linear(latent_dim, 10).to(self.device)
+        optimizer = optim.Adam(classifier.parameters(), lr=lr)
+        criterion = nn.CrossEntropyLoss()
+
+        history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+
+        for epoch in range(epochs):
+            # --- Training Phase ---
+            classifier.train()
+            train_loss, correct, total = 0, 0, 0
+            for imgs, labels in train_loader:
+                imgs, labels = imgs.to(self.device), labels.to(self.device)
+                with torch.no_grad():
+                    z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1))) if is_vae else ae_model(imgs)[1]
+
+                optimizer.zero_grad()
+                outputs = classifier(z.detach())
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+                train_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += labels.size(0)
+                correct += predicted.eq(labels).sum().item()
+
+            history['train_loss'].append(train_loss / len(train_loader))
+            history['train_acc'].append(100. * correct / total)
+
+            # --- Validation Phase ---
+            classifier.eval()
+            val_loss, correct, total = 0, 0, 0
+            with torch.no_grad():
+                for imgs, labels in val_loader:
+                    imgs, labels = imgs.to(self.device), labels.to(self.device)
+                    z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1))) if is_vae else ae_model(imgs)[1]
+                    outputs = classifier(z)
+                    val_loss += criterion(outputs, labels).item()
+                    _, predicted = outputs.max(1)
+                    total += labels.size(0)
+                    correct += predicted.eq(labels).sum().item()
+
+            history['val_loss'].append(val_loss / len(val_loader))
+            history['val_acc'].append(100. * correct / total)
+
+        return classifier, history
