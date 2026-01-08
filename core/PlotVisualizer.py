@@ -1,3 +1,8 @@
+import os
+from datetime import datetime
+from pathlib import Path
+from random import random, randint
+
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
@@ -5,7 +10,7 @@ import numpy as np
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from core.constants import SEED
+from core.constants import SEED, STATIC_ROOT
 
 
 class PlotVisualizer:
@@ -19,7 +24,7 @@ class PlotVisualizer:
             raise ValueError("n_components deve essere 2 o 3.")
         self.n_components = n_components
 
-    def plot_training_history(self, histories, title="Training vs Validation Loss"):
+    def plot_training_history(self, histories, save_path=STATIC_ROOT):
         """
         Esegue il plot delle curve di loss per tutti i modelli forniti.
         histories: lista di dizionari {'name': str, 'history': dict}
@@ -36,7 +41,8 @@ class PlotVisualizer:
                      linestyle='--', color=colors[i], alpha=0.7)
             plt.plot(epochs, h['val_loss'], label=f'{name} (Val)',
                      linestyle='-', color=colors[i], linewidth=2)
-
+        model_names = [m["name"] for m in histories]
+        title = "Training & Validation Loss\n" + "vs ".join(model_names)
         plt.title(title, fontsize=16, fontweight='bold')
         plt.xlabel('Epoche', fontsize=12)
         plt.ylabel('Model Loss log-scale', fontsize=12)
@@ -44,9 +50,13 @@ class PlotVisualizer:
         plt.grid(True, which="both", ls="-", alpha=0.2)
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
+        if save_path == STATIC_ROOT:
+            save_path += f"/{datetime.now()}"
+        Path(save_path).mkdir(parents=True, exist_ok=True)
+        plt.savefig(f"{save_path}/training_history.png", bbox_inches='tight', dpi=300)
         return plt.gcf()
 
-    def plot_latent_space(self, models_data, sample_images, labels, semantic_names, title="Latent Space Comparison", save_path="latent_space.png"):
+    def plot_latent_space(self, models_data, sample_images, labels, semantic_names, save_path=STATIC_ROOT):
         """
         Plots the 2D or 3D latent space for all models.
         """
@@ -61,13 +71,13 @@ class PlotVisualizer:
         # Grid setup
         gs = gridspec.GridSpec(1, n_models, figure=fig, left=0.05, right=0.9, wspace=0.15)
 
-        for i, m in enumerate(models_data):
+        for i, model_info in enumerate(models_data):
             ax_kwargs = {'projection': '3d'} if self.n_components == 3 else {}
             ax = fig.add_subplot(gs[0, i], **ax_kwargs)
 
-            z_raw = m['latent']
+            z_raw = model_info['latent']
             dim_orig = z_raw.shape[1]
-            is_linear = m.get('is_linear', False)
+            is_linear = model_info.get('is_linear', False)
 
             # Dimensionality Reduction Logic
             if dim_orig == self.n_components:
@@ -81,7 +91,7 @@ class PlotVisualizer:
                          init='pca', learning_rate='auto').fit_transform(z_raw)
                 tech_name = "t-SNE"
 
-            subtitle = f"{m['name']}\n"
+            subtitle = f"{model_info['name']}\n{model_info["metrics"]}"
             if dim_orig != self.n_components:
                 subtitle += f"({tech_name} {dim_orig}D -> {self.n_components}D)"
 
@@ -119,13 +129,18 @@ class PlotVisualizer:
         sm = cm.ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=9))
         fig.colorbar(sm, cax=cbar_ax, ticks=range(10)).ax.set_yticklabels(semantic_names, fontweight='bold')
 
+        model_names = [m["name"] for m in models_data]
+        title = "Latent Space Comparison\n" + "vs ".join(model_names)
         plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
         # Save and return
+        if save_path == STATIC_ROOT:
+            save_path += f"/{datetime.now()}"
+        Path(save_path).mkdir(parents=True, exist_ok=True)
         plt.savefig(f"{save_path}/latent_space.png", bbox_inches='tight', dpi=300)
         return fig
 
-    def plot_sample_reconstructions(self, models_data, original_imgs, title="Generation Comparison", save_path="reconstructions.png"):
+    def plot_sample_reconstructions(self, models_data, original_imgs, save_path=STATIC_ROOT):
         """
         Plots a comparison between original images and reconstructions from different models.
         """
@@ -149,19 +164,23 @@ class PlotVisualizer:
                              ha='right', va='center', color='#34495e')
 
             # 2. Plot Reconstructions (Subsequent Rows)
-            for i, m in enumerate(models_data):
+            for i, model_info in enumerate(models_data):
                 ax_recon = fig.add_subplot(gs[i + 1, j])
                 # Assuming MNIST-like 28x28. If different, adjust .reshape() or use .squeeze()
-                recon_img = m['recon'][j].reshape(28, 28)
+                recon_img = model_info['recon'][j].reshape(28, 28)
                 ax_recon.imshow(recon_img, cmap='bone')
                 ax_recon.axis('off')
 
                 if j == 0:
-                    ax_recon.text(-15, 14, m['name'], fontsize=12, fontweight='bold',
+                    ax_recon.text(-15, 14, f"{model_info['name']}\n{model_info['metrics']}", fontsize=12, fontweight='bold',
                                   ha='right', va='center', color='#34495e')
-
+        model_names = [m["name"] for m in models_data]
+        title = "Sample Reconstruction Comparison\n" + "vs ".join(model_names)
         plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
         # Save and return
+        if save_path == STATIC_ROOT:
+            save_path += f"/{datetime.now()}"
+        Path(save_path).mkdir(parents=True, exist_ok=True)
         plt.savefig(f"{save_path}/sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
         return fig
