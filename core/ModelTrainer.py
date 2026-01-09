@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+from core.models import Classifier
+
+
 class ModelTrainer:
     def __init__(self, device):
         self.device = device
@@ -46,8 +49,10 @@ class ModelTrainer:
         return model, history
 
     def train_classifier(self, ae_model, train_loader, val_loader, latent_dim, epochs=10, lr=1e-3, is_vae=False):
-        ae_model.eval()  # Freeze the Autoencoder
-        classifier = nn.Linear(latent_dim, 10).to(self.device)
+        is_pca = not isinstance(ae_model, nn.Module)
+        if not is_pca:
+            ae_model.eval()  # Freeze the Autoencoder
+        classifier = Classifier(latent_dim,10).to(self.device)
         optimizer = optim.Adam(classifier.parameters(), lr=lr)
         criterion = nn.CrossEntropyLoss()
 
@@ -60,7 +65,13 @@ class ModelTrainer:
             for imgs, labels in train_loader:
                 imgs, labels = imgs.to(self.device), labels.to(self.device)
                 with torch.no_grad():
-                    z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1))) if is_vae else ae_model(imgs)[1]
+                    if is_pca:
+                        x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
+                        z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
+                    elif is_vae:
+                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
+                    else:
+                        _, z =  ae_model(imgs)
 
                 optimizer.zero_grad()
                 outputs = classifier(z.detach())
@@ -82,7 +93,13 @@ class ModelTrainer:
             with torch.no_grad():
                 for imgs, labels in val_loader:
                     imgs, labels = imgs.to(self.device), labels.to(self.device)
-                    z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1))) if is_vae else ae_model(imgs)[1]
+                    if is_pca:
+                        x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
+                        z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
+                    elif is_vae:
+                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
+                    else:
+                        _, z = ae_model(imgs)
                     outputs = classifier(z)
                     val_loss += criterion(outputs, labels).item()
                     _, predicted = outputs.max(1)

@@ -22,31 +22,50 @@ class PlotVisualizer:
             raise ValueError("n_components deve essere 2 o 3.")
         self.n_components = n_components
 
-    def plot_training_history(self, histories, save_path=STATIC_ROOT):
+    def plot_training_history(self, models_data, save_path=STATIC_ROOT):
         """
         Esegue il plot delle curve di loss per tutti i modelli forniti.
-        histories: lista di dizionari {'name': str, 'history': dict}
+        models_data: lista di dizionari {'name': str, 'history': dict}
         """
-        plt.figure(figsize=(12, 6))
-        colors = plt.cm.tab10(np.linspace(0, 1, len(histories)))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
+        colors = plt.cm.tab10(np.linspace(0, 1, len(models_data)))
 
-        for i, entry in enumerate(histories):
+        for i, entry in enumerate(models_data):
             name = entry['name']
-            h = entry['history']
-            epochs = range(1, len(h['train_loss']) + 1)
+            h = entry['ae_history']
+            clf_h = entry['clf_history']
+            epochs = range(1, len(clf_h['train_loss']) + 1)
+            if h:
+                ax1.plot(epochs, h['train_loss'], label=f'{name} (Train)',
+                         linestyle='-', color=colors[i], alpha=0.7)
+                ax1.plot(epochs, h['val_loss'], label=f'{name} (Val)',
+                         linestyle='--', color=colors[i], linewidth=2)
+            ax1.plot(epochs, clf_h['train_loss'], label=f'Classifier on {name} (Train)',
+                     linestyle='-.', color=colors[i], alpha=0.7)
+            ax1.plot(epochs, clf_h['val_loss'], label=f'Classifier on {name} (Val)',
+                     linestyle=':', color=colors[i], linewidth=2)
 
-            plt.plot(epochs, h['train_loss'], label=f'{name} (Train)',
+            ax2.plot(epochs, clf_h['train_acc'], label=f'{name} (Train Acc)',
                      linestyle='--', color=colors[i], alpha=0.7)
-            plt.plot(epochs, h['val_loss'], label=f'{name} (Val)',
+            ax2.plot(epochs, clf_h['val_acc'], label=f'{name} (Val Acc)',
                      linestyle='-', color=colors[i], linewidth=2)
-        model_names = [m["name"] for m in histories]
-        title = "Training & Validation Loss\n" + "vs ".join(model_names)
-        plt.title(title, fontsize=16, fontweight='bold')
-        plt.xlabel('Epoche', fontsize=12)
-        plt.ylabel('Model Loss log-scale', fontsize=12)
-        plt.yscale('log')  # Utile per vedere differenze tra loss molto piccole
-        plt.grid(True, which="both", ls="-", alpha=0.2)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+
+        title = "Training & Validation Loss\n"
+        ax1.set_title(title, fontsize=16, fontweight='bold')
+        ax1.set_xlabel('Epochs', fontsize=12)
+        ax1.set_ylabel('Model Loss log-scale', fontsize=12)
+        ax1.set_yscale('log')  # Utile per vedere differenze tra loss molto piccole
+        ax1.grid(True, which="both", ls="-", alpha=0.2)
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        title = "Training & Validation Accuracy\n"
+        ax2.set_title(title, fontsize=16, fontweight='bold')
+        ax2.set_xlabel('Epochs', fontsize=12)
+        ax2.set_ylabel('Model Accuracy', fontsize=12)
+        ax2.grid(True, which="both", ls="-", alpha=0.2)
+        ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
         plt.tight_layout()
         if save_path == STATIC_ROOT:
             save_path += f"/{datetime.now()}"
@@ -128,8 +147,8 @@ class PlotVisualizer:
         sm = cm.ScalarMappable(cmap=cmap, norm=Normalize(vmin=0, vmax=9))
         fig.colorbar(sm, cax=cbar_ax, ticks=range(10)).ax.set_yticklabels(semantic_names, fontweight='bold')
 
-        model_names = [m["name"] for m in models_data]
-        title = "Latent Space Comparison\n" + "vs ".join(model_names)
+
+        title = "Latent Space Comparison\n"
         plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
         # Save and return
@@ -157,7 +176,7 @@ class PlotVisualizer:
             # 1. Plot Originals (Top Row)
             ax_orig = fig.add_subplot(gs[0, j])
             ax_orig.imshow(original_imgs[j].squeeze(), cmap='bone')
-            ax_orig.set_title(f"S{j + 1}:{real_name}", fontsize=11, fontweight='bold')
+            ax_orig.set_title(f"S{j + 1}: {real_name}", fontsize=11, fontweight='bold')
             ax_orig.axis('off')
 
             if j == 0:
@@ -180,8 +199,8 @@ class PlotVisualizer:
                 if j == 0:
                     ax_recon.text(-15, 14, f"{model_info['name']}\n{model_info['metrics']}", fontsize=12, fontweight='bold',
                                   ha='right', va='center', color='#34495e')
-        model_names = [m["name"] for m in models_data]
-        title = "Sample Reconstruction Comparison\n" + "vs ".join(model_names)
+
+        title = "Sample Reconstruction Comparison\n"
         plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
         # Save and return

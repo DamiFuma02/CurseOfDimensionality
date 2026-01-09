@@ -171,3 +171,14 @@ class TransformerAE(nn.Module):
         rec = self.decoder(self.from_latent(z))
 
         return rec.view(-1, 1, 28, 28), z
+
+class Classifier(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.LayerNorm(input_dim),
+            nn.Linear(input_dim, output_dim)
+        )
+
+    def forward(self, x):
+        return self.classifier(x)
