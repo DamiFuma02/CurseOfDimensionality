@@ -69,7 +69,7 @@ class ModelTrainer:
                         x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
                         z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
                     elif is_vae:
-                        z = ae_model.fc_mu(ae_model.conv_enc(imgs.view(imgs.size(0), -1)))
+                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
                     else:
                         # works for both (recon, z) and (recon, z, features)
                         _, z, *_ =  ae_model(imgs)
@@ -98,7 +98,7 @@ class ModelTrainer:
                         x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
                         z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
                     elif is_vae:
-                        z = ae_model.fc_mu(ae_model.conv_enc(imgs.view(imgs.size(0), -1)))
+                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
                     else:
                         # works for both (recon, z) and (recon, z, features)
                         _, z, *_ = ae_model(imgs)
