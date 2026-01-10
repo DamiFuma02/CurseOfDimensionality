@@ -114,7 +114,6 @@ def run_slide_2():
 
     rank_sl = latent_analizer.get_weight_rank(m_sl) # rank <= latent_dim,
     rank_dl = latent_analizer.get_weight_rank(m_dl) # rank <= latent_dim,
-    rank_dnl = latent_analizer.get_weight_rank(m_dnl)
     # Procrustes between Shallow and Deep Linear [Networks] to show they represent the same space
     z_pca_sl_aligned, pca_sl_proc_error = latent_analizer.procrustes(z_pca, z_sl.cpu().numpy())
     z_dl_sl_aligned, dl_sl_proc_error = latent_analizer.procrustes(z_dl.cpu().numpy(), z_sl.cpu().numpy())
@@ -144,7 +143,7 @@ def run_slide_2():
             'latent': z_dnl.cpu().numpy(),
             'recon': rec_dnl.cpu().numpy(),
             'predicted_labels': pred_dnl,
-            "metrics":f'MSE: {dnl_reconstr_metrics["mse"]:.4f}\nSSIM: {dnl_reconstr_metrics["ssim"]:.3g}\nWeights Rank: {rank_dnl}\nAcc: {dnl_clf_hist["val_acc"][-1]:.1f}%'}
+            "metrics":f'MSE: {dnl_reconstr_metrics["mse"]:.4f}\nSSIM: {dnl_reconstr_metrics["ssim"]:.3g}\nAcc: {dnl_clf_hist["val_acc"][-1]:.1f}%'}
     ]
     plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_2")
     plotVisualizer.plot_sample_reconstructions(models_data, imgs_eval[:N_SAMPLES], labels_remapped[:N_SAMPLES], dm.semantic_names,save_path=f"{STATIC_ROOT}/slide_2")
