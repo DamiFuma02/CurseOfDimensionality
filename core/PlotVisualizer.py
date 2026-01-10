@@ -9,7 +9,8 @@ import seaborn as sns
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from core.constants import SEED, STATIC_ROOT
+from core.constants import SEED, STATIC_ROOT, LATENT_SPACE_DIM
+
 
 class PlotVisualizer:
     """
@@ -148,7 +149,7 @@ class PlotVisualizer:
         fig.colorbar(sm, cax=cbar_ax, ticks=range(10)).ax.set_yticklabels(semantic_names, fontweight='bold')
 
 
-        title = "Latent Space Comparison\n"
+        title = f"{LATENT_SPACE_DIM}D Latent Space Comparison\n"
         plt.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
 
         # Save and return
