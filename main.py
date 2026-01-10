@@ -288,6 +288,6 @@ def run_slide_4():
     ])
     plt.show()
 
-    plotVisualizer.plot_cka_heatmap(conv_enc_features,vit_enc_features)
+    plotVisualizer.plot_cka_heatmap(conv_enc_features,vit_enc_features,save_path=f"{STATIC_ROOT}/slide_4")
     plt.show()
 
