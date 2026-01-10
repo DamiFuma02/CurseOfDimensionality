@@ -1,14 +1,15 @@
+import copy
 import torch
 import torch.nn as nn
 
 
 def fc_block(in_f, out_f, non_linear=True, use_bn=True, last_layer=False, output_act=None):
     """
-    Crea un blocco Fully Connected standard.
-    - non_linear: se False, restituisce solo nn.Linear (per modelli lineari)
-    - use_bn: se aggiungere BatchNorm1d
-    - last_layer: se è l'ultimo layer dello stadio (es. la proiezione latente), spesso non vuole BN/Act
-    - output_act: attivazione specifica (es. Sigmoid) per l'output finale del decoder
+    Creates a standard Fully Connected block.
+    - non_linear: if False, returns only nn.Linear (for linear models).
+    - use_bn: whether to add BatchNorm1d.
+    - last_layer: if this is the last layer of the stage (e.g., the latent projection); often, Batch Normalization (BN) or Activation is not required.
+    - output_act: specific activation (e.g., Sigmoid) for the final output of the decoder.
     """
     layers = [nn.Linear(in_f, out_f, bias=not use_bn)]
 
@@ -90,87 +91,108 @@ class ConvAE(nn.Module):
         super().__init__()
         # O = floor((I+2P-KS)/S)+1
         # input (B,1,28,28) batch of B images with 1 channel and 28 x 28 pixels
-        self.conv_enc = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(128), nn.LeakyReLU(0.2), # (B,128,4,4)
-        )
+        self.conv_enc = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
+            ),
+            nn.Sequential(
+                nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
+            ),
+            nn.Sequential(
+                nn.Conv2d(64, 128, kernel_size=7), nn.BatchNorm2d(128), nn.LeakyReLU(0.2), # (B,128,1,1)
+            )
+        ])
         self.fc_enc = nn.Sequential(
-            nn.Flatten(),  # (B,128*4*4)
-            fc_block(128*4*4, 128), # only 1 layer to reduce the number of parameters
+            nn.Flatten(),  # (B,128*1*1)
             fc_block(128, latent_dim, last_layer=True)  # match the latent layer dimensionality with other AEs
         )
         self.fc_dec = nn.Sequential(
             fc_block(latent_dim, 128),
-            fc_block(128, 128*4*4, last_layer=True),
-            nn.Unflatten(1, (128, 4, 4)),
+            nn.Unflatten(1, (128, 1, 1)),
         )
-        # (B,128,4,4)
+        # (B,128,1,1)
         self.conv_dec = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=0), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
+            nn.ConvTranspose2d(128, 64, kernel_size=7), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
             nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1), nn.Sigmoid() # (B,1,28,28)
         )
 
     def forward(self, x):
-        z = self.fc_enc(self.conv_enc(x))
-        out = self.conv_dec(self.fc_dec(z))
-        return out, z
+        enc_features = []
+        latent_feature = x
+        for layer in self.conv_enc:
+            latent_feature = layer(latent_feature)
+            enc_features.append(latent_feature)
+        z = self.fc_enc(latent_feature)
+        out = z
+        for layer in self.fc_dec:
+            out = layer(out)
+        out = self.conv_dec(out)
+        return out, z, enc_features
 
 
 class TransformerAE(nn.Module):
-    def __init__(self,data_dim=784, latent_dim=3, patch_size=4, embed_dim=128, num_heads=8, num_layers=2):
+    def __init__(self, img_size=28, patch_size=4, in_chans=1, latent_dim=3, embed_dim=128, num_heads=8, depth=4):
         super().__init__()
         self.patch_size = patch_size
-        num_patches = (28 // patch_size) ** 2  # Per MNIST: (28/4)^2 = 49 patches
+        self.num_patches = (img_size // patch_size) ** 2
 
-        self.patch_embed = nn.Linear(patch_size * patch_size, embed_dim)
+        # 1. Patch Embedding (Using Conv2d is more efficient than unfold)
+        self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.pos_embed = nn.Parameter(torch.randn(1, self.num_patches, embed_dim) * 0.02)
 
-        self.pos_embed = nn.Parameter(torch.randn(1, num_patches, embed_dim) * 0.02)
-
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=num_heads, batch_first=True, dropout=0,
-            dim_feedforward=512, activation='gelu'
+        # 2. ENCODER
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, batch_first=True,
+            dim_feedforward=embed_dim*4, activation='gelu', norm_first=True
         )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.norm = nn.LayerNorm(embed_dim)
+        self.encoder = nn.ModuleList([copy.deepcopy(enc_layer) for _ in range(depth)])
 
-        self.to_latent = nn.Linear(embed_dim * num_patches, latent_dim)
+        # 3. LATENT BOTTLENECK
+        self.to_latent = nn.Linear(embed_dim * self.num_patches, latent_dim)
+        self.from_latent = nn.Linear(latent_dim, embed_dim * self.num_patches)
 
-        self.from_latent = nn.Linear(latent_dim, 512)
-        self.decoder = nn.Sequential(
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, 512),
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, data_dim),
-            nn.Sigmoid()
+        # 4. DECODER (Symmetric Transformer)
+        dec_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, batch_first=True,
+            dim_feedforward=embed_dim*4, activation='gelu', norm_first=True
         )
+        self.decoder = nn.ModuleList([copy.deepcopy(dec_layer) for _ in range(depth)])
 
-        self._init_weights()
-
-    def _init_weights(self):
-        for m in self.decoder.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+        # 5. RECONSTRUCTION HEAD
+        self.reconstruct = nn.Linear(embed_dim, patch_size * patch_size * in_chans)
 
     def forward(self, x):
         b, c, h, w = x.shape
-        p = self.patch_size
 
-        patches = x.unfold(2, p, p).unfold(3, p, p).reshape(b, -1, p * p)
+        # Patchify
+        x = self.patch_embed(x).flatten(2).transpose(1, 2)
+        x = x + self.pos_embed
 
-        x = self.patch_embed(patches) + self.pos_embed
+        # Encode + Collect features for CKA
+        enc_features = []
+        for block in self.encoder:
+            x = block(x)
+            enc_features.append(x)
 
-        x = self.transformer_encoder(x)
-        x = self.norm(x)  # LayerNorm fondamentale
-
+        # Bottleneck
         z = self.to_latent(x.reshape(b, -1))
 
-        rec = self.decoder(self.from_latent(z))
+        # Decode
+        x = self.from_latent(z).reshape(b, self.num_patches, -1)
+        for block in self.decoder:
+            x = block(x)
 
-        return rec.view(-1, 1, 28, 28), z
+        # Reconstruct pixels
+        x = self.reconstruct(x)  # (B, 49, 16)
+
+        # Reshape patches back to image
+        p = self.patch_size
+        x = x.view(b, h // p, w // p, p, p)
+        x = x.permute(0, 1, 3, 2, 4).contiguous()
+        out = torch.sigmoid(x.view(b, c, h, w))
+
+        return out, z, enc_features
 
 class Classifier(nn.Module):
     def __init__(self, input_dim, output_dim):

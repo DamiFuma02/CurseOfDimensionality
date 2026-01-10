@@ -9,7 +9,7 @@ class DataManager:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = batch_size
 
-        # Configurazione Semantica FashionMNIST
+        # Semantic configuration FashionMNIST
         self.classes_orig = ['T-shirt', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag',
                              'Boot']
         self.semantic_order = [0, 6, 2, 4, 3, 1, 8, 5, 7, 9]
@@ -20,7 +20,7 @@ class DataManager:
         self.train_set = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
         self.test_set = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transform)
 
-        # Subset per valutazione
+        # subset for validation
         indices = np.random.choice(len(self.test_set), limit_samples, replace=False)
         self.eval_loader = DataLoader(Subset(self.test_set, indices), batch_size=limit_samples, shuffle=False)
 

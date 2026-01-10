@@ -1,8 +1,9 @@
 SEED = 42
-EPOCHS = 15  # Ridotto per brevità, usa 20+ per risultati ottimali
+EPOCHS = 15
 LATENT_SPACE_DIM = 3
-N_COMPONENTS = 3
-assert N_COMPONENTS <= LATENT_SPACE_DIM
+assert LATENT_SPACE_DIM in range(2,128)
+N_COMPONENTS_VIEW = 3
+assert N_COMPONENTS_VIEW <= LATENT_SPACE_DIM
 STATIC_ROOT = "./static"
 BATCH_SIZE = 128
 LIMIT_SAMPLES = 2000

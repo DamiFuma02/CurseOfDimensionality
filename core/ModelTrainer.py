@@ -19,7 +19,7 @@ class ModelTrainer:
             kld = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
             return mse + beta * (kld / 784)
         else:
-            recon, _ = model(imgs)
+            recon, *_ = model(imgs)
             return criterion(recon, imgs)
 
     def train(self, model, train_loader, val_loader, epochs=10, lr=1e-3, is_vae=False, beta=1.0):
@@ -69,9 +69,10 @@ class ModelTrainer:
                         x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
                         z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
                     elif is_vae:
-                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
+                        z = ae_model.fc_mu(ae_model.conv_enc(imgs.view(imgs.size(0), -1)))
                     else:
-                        _, z =  ae_model(imgs)
+                        # works for both (recon, z) and (recon, z, features)
+                        _, z, *_ =  ae_model(imgs)
 
                 optimizer.zero_grad()
                 outputs = classifier(z.detach())
@@ -97,9 +98,10 @@ class ModelTrainer:
                         x_flat = imgs.view(imgs.size(0), -1).cpu().numpy()
                         z = torch.from_numpy(ae_model.transform(x_flat)).float().to(self.device)
                     elif is_vae:
-                        z = ae_model.fc_mu(ae_model.encoder(imgs.view(imgs.size(0), -1)))
+                        z = ae_model.fc_mu(ae_model.conv_enc(imgs.view(imgs.size(0), -1)))
                     else:
-                        _, z = ae_model(imgs)
+                        # works for both (recon, z) and (recon, z, features)
+                        _, z, *_ = ae_model(imgs)
                     outputs = classifier(z)
                     val_loss += criterion(outputs, labels).item()
                     _, predicted = outputs.max(1)
