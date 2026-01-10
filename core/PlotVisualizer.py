@@ -211,7 +211,7 @@ class PlotVisualizer:
         plt.savefig(f"{save_path}/sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
         return fig
 
-    def plot_cka_heatmap(self, cnn_features, vit_features):
+    def plot_cka_heatmap(self, cnn_features, vit_features, save_path=STATIC_ROOT):
         num_cnn = len(cnn_features)
         num_vit = len(vit_features)
         results = torch.zeros((num_cnn, num_vit))
@@ -256,3 +256,8 @@ class PlotVisualizer:
         plt.ylabel("CNN Layers")
         plt.title("CKA: CNN vs ViT Representation Alignment")
         plt.show()
+        if save_path == STATIC_ROOT:
+            save_path += f"/{datetime.now()}"
+        Path(save_path).mkdir(parents=True, exist_ok=True)
+        plt.savefig(f"{save_path}/cka_heatmap.png", bbox_inches='tight', dpi=300)
+        return plt
