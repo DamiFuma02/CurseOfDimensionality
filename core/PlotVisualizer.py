@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
 import numpy as np
+import seaborn as sns
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from core.constants import SEED, STATIC_ROOT
-
 
 class PlotVisualizer:
     """
@@ -28,7 +28,7 @@ class PlotVisualizer:
         models_data: lista di dizionari {'name': str, 'history': dict}
         """
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
-        colors = plt.cm.tab10(np.linspace(0, 1, len(models_data)))
+        colors = plt.cm.tab10(range(len(models_data)))
 
         for i, entry in enumerate(models_data):
             name = entry['name']
@@ -45,9 +45,9 @@ class PlotVisualizer:
             ax1.plot(epochs, clf_h['val_loss'], label=f'Classifier on {name} (Val)',
                      linestyle=':', color=colors[i], linewidth=2)
 
-            ax2.plot(epochs, clf_h['train_acc'], label=f'{name} (Train Acc)',
+            ax2.plot(epochs, clf_h['train_acc'], label=f'{name} (Train)',
                      linestyle='--', color=colors[i], alpha=0.7)
-            ax2.plot(epochs, clf_h['val_acc'], label=f'{name} (Val Acc)',
+            ax2.plot(epochs, clf_h['val_acc'], label=f'{name} (Val)',
                      linestyle='-', color=colors[i], linewidth=2)
 
 
@@ -209,3 +209,49 @@ class PlotVisualizer:
         Path(save_path).mkdir(parents=True, exist_ok=True)
         plt.savefig(f"{save_path}/sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
         return fig
+
+    def plot_cka_heatmap(self, cnn_features, vit_features):
+        num_cnn = len(cnn_features)
+        num_vit = len(vit_features)
+        results = torch.zeros((num_cnn, num_vit))
+
+        def cka_score(feat1, feat2):
+            """
+            Computes Linear CKA between two feature matrices.
+            feat1: [Batch, Features1]
+            feat2: [Batch, Features2]
+            """
+            # 1. Flatten if necessary
+            X = feat1.view(feat1.size(0), -1)
+            Y = feat2.view(feat2.size(0), -1)
+
+            # 2. Center the columns (subtract mean)
+            X = X - X.mean(dim=0)
+            Y = Y - Y.mean(dim=0)
+
+            # 3. Compute the Linear Kernel (Gram Matrix)
+            # K = X X^T and L = Y Y^T
+            K = torch.matmul(X, X.transpose(0, 1))
+            L = torch.matmul(Y, Y.transpose(0, 1))
+
+            # 4. Compute HSIC (Hilbert-Schmidt Independence Criterion)
+            def hsic(K, L):
+                n = K.shape[0]
+                # Centering matrix H
+                H = torch.eye(n, device=K.device) - 1.0/n
+                K_cent = H @ K @ H
+                L_cent = H @ L @ H
+                return (K_cent * L_cent).sum() / ((n - 1)**2)
+
+            return hsic(K, L) / (torch.sqrt(hsic(K, K)) * torch.sqrt(hsic(L, L)))
+
+        for i in range(num_cnn):
+            for j in range(num_vit):
+                results[i, j] = cka_score(cnn_features[i], vit_features[j])
+
+        # 4. Visualize with a Heatmap
+        sns.heatmap(results.detach().numpy(), annot=True, cmap='magma')
+        plt.xlabel("ViT Layers")
+        plt.ylabel("CNN Layers")
+        plt.title("CKA: CNN vs ViT Representation Alignment")
+        plt.show()
