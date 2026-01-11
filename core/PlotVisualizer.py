@@ -110,7 +110,7 @@ class PlotVisualizer:
 
             subtitle = f"{model_info['name']}\n{model_info["metrics"]}"
             if dim_orig != self.n_components:
-                subtitle += f"({tech_name} {dim_orig}D -> {self.n_components}D)"
+                subtitle += f"\n({tech_name} {dim_orig}D -> {self.n_components}D)"
 
             # Plotting
             coords = [z[:, j] for j in range(self.n_components)]
