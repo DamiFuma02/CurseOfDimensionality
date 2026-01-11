@@ -235,7 +235,7 @@ def run_slide_3():
     models_data.extend([
         {"name": f"beta={beta} VAE", "ae_history": beta_vae_training_history[i], 'clf_history': clf_beta_vae_training_histories[i]} for i, beta in enumerate(BETA_VALUES)
     ])
-    plotVisualizer.plot_training_history(models_data,save_path=f"{STATIC_ROOT}/slide_2")
+    plotVisualizer.plot_training_history(models_data,save_path=f"{STATIC_ROOT}/slide_3")
     plt.show()
 
 
