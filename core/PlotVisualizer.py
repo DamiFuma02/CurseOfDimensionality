@@ -4,12 +4,11 @@ import torch
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.cm as cm
-import numpy as np
 import seaborn as sns
 from matplotlib.colors import Normalize
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from core.constants import SEED, STATIC_ROOT, LATENT_SPACE_DIM
+from core.constants import SEED, STATIC_ROOT, LATENT_SPACE_DIM, N_COMPONENTS_VIEW, IMG_H, IMG_W
 
 
 class PlotVisualizer:
@@ -18,9 +17,9 @@ class PlotVisualizer:
     Supporta visualizzazioni 2D e 3D dinamiche.
     """
 
-    def __init__(self, n_components=3):
+    def __init__(self, n_components=N_COMPONENTS_VIEW):
         if n_components not in [2, 3]:
-            raise ValueError("n_components deve essere 2 o 3.")
+            raise ValueError("n_components must be 2 or 3")
         self.n_components = n_components
 
     def plot_training_history(self, models_data, save_path=STATIC_ROOT):
@@ -71,7 +70,7 @@ class PlotVisualizer:
         if save_path == STATIC_ROOT:
             save_path += f"/{datetime.now()}"
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        plt.savefig(f"{save_path}/training_history.png", bbox_inches='tight', dpi=300)
+        plt.savefig(f"{save_path}/{LATENT_SPACE_DIM}D_training_history.png", bbox_inches='tight', dpi=300)
         return plt.gcf()
 
     def plot_latent_space(self, models_data, sample_images, labels, semantic_names, save_path=STATIC_ROOT):
@@ -156,7 +155,7 @@ class PlotVisualizer:
         if save_path == STATIC_ROOT:
             save_path += f"/{datetime.now()}"
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        plt.savefig(f"{save_path}/latent_space.png", bbox_inches='tight', dpi=300)
+        plt.savefig(f"{save_path}/{LATENT_SPACE_DIM}D_latent_space.png", bbox_inches='tight', dpi=300)
         return fig
 
     def plot_sample_reconstructions(self, models_data, original_imgs, labels, semantic_names, save_path=STATIC_ROOT):
@@ -188,7 +187,7 @@ class PlotVisualizer:
             for i, model_info in enumerate(models_data):
                 ax_recon = fig.add_subplot(gs[i + 1, j])
                 # Assuming MNIST-like 28x28. If different, adjust .reshape() or use .squeeze()
-                recon_img = model_info['recon'][j].reshape(28, 28)
+                recon_img = model_info['recon'][j].reshape(IMG_H, IMG_W)
                 ax_recon.imshow(recon_img, cmap='bone')
                 pred_label = model_info['predicted_labels'][j]
                 pred_name = semantic_names[pred_label]
@@ -208,7 +207,7 @@ class PlotVisualizer:
         if save_path == STATIC_ROOT:
             save_path += f"/{datetime.now()}"
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        plt.savefig(f"{save_path}/sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
+        plt.savefig(f"{save_path}/{LATENT_SPACE_DIM}D_sample_imgs_reconstruction.png", bbox_inches='tight', dpi=300)
         return fig
 
     def plot_cka_heatmap(self, cnn_features, vit_features, save_path=STATIC_ROOT):
@@ -259,5 +258,5 @@ class PlotVisualizer:
         if save_path == STATIC_ROOT:
             save_path += f"/{datetime.now()}"
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        plt.savefig(f"{save_path}/cka_heatmap.png", bbox_inches='tight', dpi=300)
+        plt.savefig(f"{save_path}/{LATENT_SPACE_DIM}D_cka_heatmap.png", bbox_inches='tight', dpi=300)
         return plt

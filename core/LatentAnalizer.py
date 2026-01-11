@@ -7,7 +7,7 @@ from sklearn.metrics import pairwise_distances, silhouette_score
 from sklearn.feature_selection import mutual_info_classif
 from skimage.metrics import structural_similarity as ssim
 from fvcore.nn import FlopCountAnalysis
-from core.constants import SEED
+from core.constants import SEED, IMG_W, IMG_H, IMG_CHANNELS
 from core.models import VAE
 
 
@@ -30,8 +30,8 @@ class LatentAnalizer:
                        recon_np.reshape(recon_np.shape[0], -1)) ** 2)
 
         # SSIM (Perceptual)
-        orig_img = orig_np.reshape(-1, 28, 28)
-        recon_img = recon_np.reshape(-1, 28, 28)
+        orig_img = orig_np.reshape(-1, IMG_W, IMG_H)
+        recon_img = recon_np.reshape(-1, IMG_W, IMG_H)
         avg_ssim = np.mean([ssim(orig_img[i], recon_img[i], data_range=1.0)
                             for i in range(len(orig_img))])
 
@@ -120,7 +120,7 @@ class LatentAnalizer:
             return np.linalg.matrix_rank(combined_w)
 
     @staticmethod
-    def compute_flops(model, input_size=(1, 1, 28, 28), verbose=False):
+    def compute_flops(model, input_size=(1, IMG_CHANNELS, IMG_W, IMG_H), verbose=False):
         """
         Computational efficiency analysis.
         Calculate the total number of Floating Point Operations (FLOPs) for a single forward pass.

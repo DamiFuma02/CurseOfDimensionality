@@ -2,6 +2,8 @@ import copy
 import torch
 import torch.nn as nn
 
+from core.constants import IMG_H, IMG_W, LATENT_SPACE_DIM, IMG_CHANNELS
+
 
 def fc_block(in_f, out_f, non_linear=True, use_bn=True, last_layer=False, output_act=None):
     """
@@ -24,17 +26,17 @@ def fc_block(in_f, out_f, non_linear=True, use_bn=True, last_layer=False, output
     return nn.Sequential(*layers)
 
 class LinearAE(nn.Module):
-    def __init__(self,data_dim=784, latent_dim=3):
+    def __init__(self,data_dim=IMG_H*IMG_W, latent_dim=LATENT_SPACE_DIM):
         super().__init__()
         self.enc = fc_block(data_dim, latent_dim, non_linear=False)
         self.dec = fc_block(latent_dim, data_dim, non_linear=False)
     def forward(self, x):
         z = self.enc(x.view(x.size(0), -1))
-        out = self.dec(z).view(-1, 1, 28, 28)
+        out = self.dec(z).view(-1, IMG_CHANNELS, IMG_H, IMG_W)
         return out, z
 
 class DeepAE(nn.Module):
-    def __init__(self, data_dim=784, latent_dim=3, non_linear=True):
+    def __init__(self, data_dim=IMG_H*IMG_W, latent_dim=LATENT_SPACE_DIM, non_linear=True):
         super().__init__()
         # Encoder
         self.enc = nn.Sequential(
@@ -53,11 +55,11 @@ class DeepAE(nn.Module):
         )
     def forward(self, x):
         z = self.enc(x.view(x.size(0), -1))
-        out = self.dec(z).view(-1, 1, 28, 28)
+        out = self.dec(z).view(-1, IMG_CHANNELS, IMG_H, IMG_W)
         return out, z
 
 class VAE(nn.Module):
-    def __init__(self, data_dim=784, latent_dim=3):
+    def __init__(self, data_dim=IMG_H*IMG_W, latent_dim=LATENT_SPACE_DIM):
         super().__init__()
         act = nn.LeakyReLU(0.2) # Uniformato a DeepAE
         self.encoder = nn.Sequential(
@@ -83,17 +85,17 @@ class VAE(nn.Module):
         h = self.encoder(x.view(x.size(0), -1))
         mu, logvar = self.fc_mu(h), self.fc_logvar(h)
         z = self.reparameterize(mu, logvar)
-        out = self.decoder(z).view(-1, 1, 28, 28)
+        out = self.decoder(z).view(-1, 1, IMG_H, IMG_W)
         return out, mu, logvar
 
 class ConvAE(nn.Module):
-    def __init__(self, latent_dim=3):
+    def __init__(self, latent_dim=LATENT_SPACE_DIM):
         super().__init__()
         # O = floor((I+2P-KS)/S)+1
-        # input (B,1,28,28) batch of B images with 1 channel and 28 x 28 pixels
+        # input (B,IMG_CHANNELS,IMG_H,IMG_W) batch of B images with IMG_CHANNELS channel and IMG_H x IMG_W pixels
         self.conv_enc = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
+                nn.Conv2d(IMG_CHANNELS, 32, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
             ),
             nn.Sequential(
                 nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
@@ -114,7 +116,7 @@ class ConvAE(nn.Module):
         self.conv_dec = nn.Sequential(
             nn.ConvTranspose2d(128, 64, kernel_size=7), nn.BatchNorm2d(64), nn.LeakyReLU(0.2), # (B,64,7,7)
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1), nn.BatchNorm2d(32), nn.LeakyReLU(0.2), # (B,32,14,14)
-            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1), nn.Sigmoid() # (B,1,28,28)
+            nn.ConvTranspose2d(32, IMG_CHANNELS, kernel_size=3, stride=2, padding=1, output_padding=1), nn.Sigmoid() # (B,IMG_CHANNELS,IMG_H,IMG_W)
         )
 
     def forward(self, x):
@@ -132,10 +134,12 @@ class ConvAE(nn.Module):
 
 
 class TransformerAE(nn.Module):
-    def __init__(self, img_size=28, patch_size=4, in_chans=1, latent_dim=3, embed_dim=128, num_heads=8, depth=4):
+    def __init__(self, img_width=IMG_W, img_height=IMG_H, patch_size=4, in_chans=IMG_CHANNELS, latent_dim=LATENT_SPACE_DIM, embed_dim=128, num_heads=8, depth=4):
         super().__init__()
         self.patch_size = patch_size
-        self.num_patches = (img_size // patch_size) ** 2
+        self.hh = img_height // patch_size
+        self.ww = img_width // patch_size
+        self.num_patches = self.hh * self.ww
 
         # 1. Patch Embedding (Using Conv2d is more efficient than unfold)
         self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)

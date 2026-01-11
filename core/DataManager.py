@@ -3,9 +3,11 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 import numpy as np
 
+from core.constants import BATCH_SIZE, LIMIT_SAMPLES
+
 
 class DataManager:
-    def __init__(self, batch_size=128, limit_samples=2000):
+    def __init__(self, batch_size=BATCH_SIZE, limit_samples=LIMIT_SAMPLES):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = batch_size
 

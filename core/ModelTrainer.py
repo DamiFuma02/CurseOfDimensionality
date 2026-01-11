@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+from core.constants import EPOCHS, LEARN_RATE, IMG_H, IMG_W
 from core.models import Classifier
 
 
@@ -15,14 +16,14 @@ class ModelTrainer:
         if is_vae:
             recon, mu, logvar = model(imgs)
             mse = F.mse_loss(recon, imgs, reduction='mean')
-            # KLD normalizzata per dimensione immagine per bilanciare i pesi della loss
+            # KLD normalized on flatten image dimension
             kld = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
-            return mse + beta * (kld / 784)
+            return mse + beta * (kld / (IMG_H*IMG_W))
         else:
             recon, *_ = model(imgs)
             return criterion(recon, imgs)
 
-    def train(self, model, train_loader, val_loader, epochs=10, lr=1e-3, is_vae=False, beta=1.0):
+    def train(self, model, train_loader, val_loader, epochs=EPOCHS, lr=LEARN_RATE, is_vae=False, beta=1.0):
         model.to(self.device)
         optimizer = optim.Adam(model.parameters(), lr=lr)
         criterion = nn.MSELoss()
@@ -48,7 +49,7 @@ class ModelTrainer:
             history['val_loss'].append(val_loss / len(val_loader))
         return model, history
 
-    def train_classifier(self, ae_model, train_loader, val_loader, latent_dim, epochs=10, lr=1e-3, is_vae=False):
+    def train_classifier(self, ae_model, train_loader, val_loader, latent_dim, epochs=EPOCHS, lr=LEARN_RATE, is_vae=False):
         is_pca = not isinstance(ae_model, nn.Module)
         if not is_pca:
             ae_model.eval()  # Freeze the Autoencoder
