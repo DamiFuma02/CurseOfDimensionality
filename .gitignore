@@ -2,3 +2,4 @@
 static
 venv
 .venv
+.env

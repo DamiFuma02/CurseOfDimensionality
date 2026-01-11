@@ -1,0 +1,260 @@
+\documentclass[preprint]{main}
+\usepackage[
+    colorlinks=true,
+    allcolors=black,
+    pdfborder={0 0 0}
+]{hyperref}
+
+\usepackage{graphicx} % Required for inserting images
+\usepackage{biblatex}
+\usepackage{tabularx} 
+\usepackage{adjustbox}
+\usepackage{changepage}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{float} 
+\usepackage{enumitem}
+\usepackage[english]{babel}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue}\bfseries\underbar,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+\addbibresource{mybibfile.bib} 
+
+\articletitle{A comparative analysis of Latent Architectures}
+\correspondingauthor{Fumagalli Damiano}
+\publicationdate{2025-2026}
+\email{\EMAIL}
+
+% Select the type of article here by uncommenting one of the following lines
+% \originalarticle
+\reviewarticle
+%\translationalresearcharticle
+%\editorial
+%\creativework
+
+% Set the article title here
+\setarticletitle{A comparative analysis of Latent Architectures}
+
+
+\author[1]{Damiano Fumagalli} 
+\affil[1]{Università degli Studi di Udine\\ \texttt{\EMAIL}} 
+\renewcommand{\abstractname}{}
+
+\thispagestyle{plain}
+\begin{document}
+\onecolumn
+\date{A.A 2025-2026}
+\maketitle
+
+\begin{center}
+    \noindent\rule{.9\textwidth}{.4pt}
+\end{center}
+
+\begin{abstract}
+    \noindent\textbf{\large ABSTRACT} \\ 
+    \noindent This report investigates the efficacy of various latent architectures in learning low-dimensional data representations of the original high-dimensional data, represented by the images of FashionMNIST dataset classified in 10 categories. \\
+    \noindent From simple linear models (PCA, LinearAE) to more complex non linear ones (AE, VAE, $\beta$-VAE) with some regularization techniques, ending with spatially aware models like CNNs and transformers, the goal is to obtain the latent space representation of each model (using the same dimensionality) and train a simple neural network classifier on the latent data maximizing the accuracy with respect to the original data.
+\end{abstract}
+
+\begin{center}
+    \noindent\rule{.9\textwidth}{.4pt}
+\end{center}
+  \textbf{Keywords:} AI, AE, AutoEncoders, CNN, VAE, ViT, Transformers, Latent Space
+
+
+\clearpage
+
+
+
+
+
+\section{Case Study}
+The Manifold Hypothesis states that in high-dimensional spaces, data often becomes sparse  and Euclidean distances become uninformative. 
+This means that there musts exist a lower-dimensional space that is able to capture all the informations about the data that is observed in various kind of phenomena. \\
+The goal of the study is to determine the best model architecture to learn some hidden (latent) features of the input images of the FashionMNIST dataset.
+Then use the latent space representation of models to train a supervised classification model using the ground truth values (classes of the original images). 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{static//slide_1/FashionMNIST.png}
+    \caption{Samples from FashionMNIST dataset}
+    \label{fig:placeholder}
+\end{figure}
+
+
+Starting from the original dataset $X \in \mathbf{R}^{N \times D} = \{x_1, \dots, x_N: x_i \in \mathbf{R}^D\}$ in high-dimensional space, the Manifold Hypothesis states that there exists a low-dimensional space $Z = \mathbf{R}^d$ that contains the same information about the original one.  \\
+Among all the different architectures, the study focuses on the main structural differences between the standard Singular Value Decomposition, AutoEncoders, Variational Autoencoders, Convolutional Neural Networks and Transformers, exploring each category pros and cons.
+
+
+\section{Linear Collapse, The Capacity of the Subspace}
+
+The transition from linear to non-linear architectures represents a fundamental difference in how a model interacts with the underlying data geometry. 
+This section explores why depth alone is insufficient for manifold learning and how non-linearity serves as the catalyst for semantic separation. 
+
+
+
+
+\subsection{AutoEncoders}
+
+An AutoEncoder model is a neural network that trains an encoder $e_{\theta}: \mathbf{R}^{N \times D} \to \mathbf{R}^{N \times d}$, that produces the latent space $Z = e_{\theta}(X)$ and the decoder $d_{\phi}: \mathbf{R}^{N \times d} \to \mathbf{R}^{N \times D} $ that tries to recreate the original input $\hat{X} = d_{\phi}(Z) $ minizing the reconstruction loss $L = ||X-d_{\phi}(e_{\theta}(X))||_F^2 $. \\
+For a standard AE, the encoder and decoder components are multi layer perceptrons with non linear activation functions in the hidden layers.
+Removing the non linearity, the effect of the depth collapses into a shallow encoder and decoder layers. \\
+
+
+\subsection{Linear Models}
+
+The standard SVD algorithm produces an estimation of the original data $\hat{X}_{N \times D} = U_{N \times N}\Sigma_{N \times D} V^T_{D \times D}$ where $\Sigma$ is a diagonal matrix of the singular values, ordered by variance.
+The PCA algorithm, used for the linear dimensionality reduction, searches a matrix $V_d \in \mathbf{R}^{D \times d}$ such that it produces a $Z_{N \times d} = XV_d$ minizing the reconstruction loss $L = ||X-XV_dV_d^T||_F^2$. 
+By "Eckart-Young-Mirsky matrix approximation theorem" \cite{golub1987generalization} the $V_d$ matrix is obtained by taking the first $d$ columns of the $V$ matrix of the SVD. \\
+The linear AE is trying to encode $Z = e_{\theta}(X) = XW_\theta$ and decode it $\hat{X} = d_{\phi}(Z) = ZW_\phi = XW_\theta W_\phi$ minizing the reconstruction loss $L = ||X-XW_\theta W_\phi||_F^2 $ that is the same goal of the standard linear PCA algorithm, but without the variance ordered base constraint imposed by the SVD.  \\
+Using some procrustes aligment techniques the space of the models have been rotated and projected maintaing the structural integrity, and evaluating also the error after that alignment. \\
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_2/64D_latent_space.png}
+    \caption{Latent Space Comparison}
+    \label{fig:placeholder}
+\end{figure}
+
+Notice immediately how the PCA and LinearAE models produce the same subspace, with an low alignment error, almost equal Mean Squared Error value and Structural Similarity (SSIM).
+The SSIM value measures the human vision perception, ranging $\in [0,1]$ with best score $1$ and with a value $\le 0.5$ the image appears out of focus and distorted. \\
+Notice that the deep linear AE produces almost the same subspace by the aligment error, but a higher MSE and lower SSIM caused by the unnecessary depth and higher number of parameters to train. \\
+The accuracy values also confirm the capability of the latent space to represent correctly the informations about the clusters, as show also in the sample reconstruction plot.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_2/64D_sample_imgs_reconstruction.png}
+    \caption{Sample Images Reconstruction}
+    \label{fig:placeholder}
+\end{figure}
+
+
+\section{Non Linearity and Space Regularization}
+
+Introducing the non linear activation functions the models are more capable of disentagling the latent features of the space, creating better separations.
+In the previous analysis the non linear AE performed the best, reconstructing the images much better than the other models.
+With lower latent space dimensionality, the effect of the non linearity will increase the accuracy and MSE scores. \\
+Now the space is regularized and has a lot of holes, so sampling an image from these holes will generate invalid data, tipically an overlap of multiple images. \\
+
+If the latent space has a number of dimensions higher than $3$ the human mind cannot comprehend or visualize it, so there must be used the appropriate dimensionality reduction techniques, to handle differently linear and non linear characteristics of the data. 
+The PCA, as explained before, comes into play with in the first case, and TSNE or UMAP can extract the non linear features showing better some clusters.
+\subsection{Variational AutoEncoders}
+
+Now the data is governed by a probability distribution $P(X)$ and the encoder learnes the probability $P(Z|X)$ and the decoder $P(X|Z)$ where the latent space $P(Z)$ probability distribution depends tipically on the gaussian distribution $N_{\mu, \sigma}(Z)$ using an exponential probability to simplify the logarithmic terms in the Maximum Likelihood Estimation for the VAE. \\
+Using a reparametrization technique, the training phase reduces the reconstruction loss like the standard AE and minimizes the Kullback-Leibler divergence forcing the latent space distribution to be close to the standard gaussian distribution $N(0,I)$.
+The final loss combines the two single components $L = MSE + KL(P(Z), N(0,I))$.
+
+
+\subsection{$\beta$ trade-off for Variational AutoEncoders}
+
+Introducing the $\beta$ regularization parameter in the loss formula we can decide the effect of the divergence $L = MSE + \beta*KL(P(Z), N(0,I))$.
+With a $\beta$ value close to $0$ the model becomes similar to the standard AE. 
+Using a medium value we force the model to separate the concepts in different axes, in order to minimize the reconstruction error, generating the desired disentaglment of the latent features. 
+If the value of $\beta$ is too high the autoencoders almost ignores the input data, it only searches to center the probability distribution of the latent space, resulting in overlapped images and lower SSIM scores.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_3/64D_latent_space.png}
+    \caption{Latent Space Comparison}
+    \label{fig:placeholder}
+\end{figure}
+
+The Mutual Info Gap (MIG) measures the disentanglement of the space, so if some features are expressed by single axes. 
+The Silhouette Score measures how much the clusters are separated, ranging $\in [-1,1]$, with negative values representing from classification and null values showing the overlapping clusters.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_3/64D_sample_imgs_reconstruction.png}
+    \caption{Sample Images Reconstruction}
+    \label{fig:placeholder}
+\end{figure}
+
+\section{Inductive Biases: Spatial vs. Global Intelligence}
+
+All the previous models work with images as vectors $\in \mathbf{R}^D$, intepreting them as a sequence of $D$ pixels.
+In reality images are represented as a grid of pixels with a resolution (Height \times Width) and a number of channels (RGB, ...) so the final image is a tensor with $ (C,H,W) $ shapes. \\
+
+\subsection{Convolutional Neural Networks}
+
+The Convolutional Neural Networks exploit another techniques, instead of using a fully connected layer, it defines some filters (kernels) that scan the image capturing different visual patterns. 
+The first layer identifies simple structures like edges, corners and lines, and like in the multi layer perceptron case the deep layers extract more complex features, as a combination of the previous layers simple features.   \\
+After some convolution operations, there's a flattening operation to produce a vector in the latent space $Z = \mathbf{R}^d$.
+The decoder operates in the other way, so it uses unflattening and deconvolutions to return to the original tensor image. \\
+These models are called traslation invariant, because a kernel can detect a ceratin pattern across the entire picture (from top-left to bottom-right corner).
+
+\subsubsection{Vision Transformers}
+
+The input image is divided into a sequence of 2D grids (patch) treated as tokens, the basic unit for transformers.
+These tokens are projected linearly into a lower dimensional embedding space. \\
+Since the Transformer architecture is permutation-invariant because the order of the patches isn't relevant, there must be a positional encoding step, that introduces some information about the patch position inside the original image. \\
+Using the self-attention mechanism, each patch shares information with all the others.
+This represents a remarkable difference and improvement with respect to the CNN structure, that operates on the assumption that nearby pixels are highly correlated.
+Intuitively the convolution operation must represent a special case of the attention mechanism, in which the correlation appends to be only for the pixels involved in the filter. \\
+Some reasearches studied this phenomenon \cite{cordonnier2020relationshipselfattentionconvolutionallayers} and proved that the initial layers of the transformers architectures represent almost the same informations as the final convolution layers, due to the global relationships across the entire pictures.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\linewidth]{static/slide_4/64D_cka_heatmap.png}
+    \caption{CKA Heatmap: CNN vs ViT}
+    \label{fig:placeholder}
+\end{figure}
+The Central Kernel Alignment is a metric that confronts two vector spaces and tries to quantify their similarities.
+Since the FashionMNIST is a simple dataset, in which images have only 1 channel and low resolution, the CNN and ViT models learn efficiently the features in the first layers.
+The last layers are also similar, due to the fact that they are trying to learn the same latent space $Z$.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_4/64D_latent_space.png}
+    \caption{Latent Space Comparison}
+    \label{fig:placeholder}
+\end{figure}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\linewidth]{static/slide_4/64D_sample_imgs_reconstruction.png}
+    \caption{Sample Images Reconstruction}
+    \label{fig:placeholder}
+\end{figure}
+
+\section{Analysis of the Results, Conclusions and Future Studies}
+
+Since the FashionMNIST dataset contains images with simple pattern and textures, the simple architectures are capable enough to extract and learn the hidden features of the images, proven by low MSE and high SSIM scores for standard AE and low beta VAE. \\
+The improvements of the CNN and ViT models are moderate, because there's almost no need to extract more informations.
+These models will perform efficienty on more complex images with more channels, like in the medical or scientific fields where images are captured using different light spectrums (xrays, gamma, red, microwaves, ...) each one capable of showing different kind of patterns and features. \\
+Some researchers \cite{Haruna_2025} studied some hybrid models that try to exploit the best features for both CNN and Transformers architectures, fostering a deeper understanding of the intricate dynamics and their collective impact on shaping the future of Computer Vision architectures. \\
+
+
+
+\newpage
+
+\printbibliography %Prints bibliography
+  
+\end{document}

@@ -1,0 +1,4 @@
+include .env
+
+all:
+    pdflatex "\def\MYID{$(MY_ID)}\def\EMAIL{$(EMAIL)}\input{main.tex}"
