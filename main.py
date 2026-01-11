@@ -125,21 +125,25 @@ def run_slide_2():
 
     models_data = [
         {   'name': 'PCA',
+            'is_linear': True,
             'latent': z_pca_sl_aligned,
             'recon': rec_pca,
             'predicted_labels': pred_pca,
             "metrics": f'MSE: {pca_reconstr_metrics["mse"]:.4f}\nSSIM: {pca_reconstr_metrics["ssim"]:.3g}\nProc. Err vs Shallow: {pca_sl_proc_error:.3g}\nAcc: {pca_clf_hist["val_acc"][-1]:.1f}%'},
         {   'name': 'Shallow Linear AE',
+            'is_linear': True,
             'latent': z_sl.cpu().numpy(),
             'recon': rec_sl.cpu().numpy(),
             'predicted_labels': pred_sl,
             "metrics":f'MSE: {sl_reconstr_metrics["mse"]:.4f}\nSSIM: {sl_reconstr_metrics["ssim"]:.3g}\nWeights Rank: {rank_sl}\nAcc: {sl_clf_hist["val_acc"][-1]:.1f}%'},
         {   'name': 'Deep Linear AE',
+            'is_linear': True,
             'latent': z_dl_sl_aligned,
             'recon': rec_dl.cpu().numpy(),
             'predicted_labels': pred_dl,
             "metrics": f'MSE: {dl_reconstr_metrics["mse"]:.4f}\nSSIM: {dl_reconstr_metrics["ssim"]:.3g}\nWeights Rank: {rank_dl}\nProc. Err vs Shallow: {dl_sl_proc_error:.3g}\nAcc: {dl_clf_hist["val_acc"][-1]:.1f}%'},
         {   'name': 'Deep Non-Linear AE',
+            'is_linear': False,
             'latent': z_dnl.cpu().numpy(),
             'recon': rec_dnl.cpu().numpy(),
             'predicted_labels': pred_dnl,
@@ -153,7 +157,7 @@ def run_slide_2():
         {'name': 'Shallow Linear AE', 'ae_history': sl_loss_hist, 'clf_history': sl_clf_hist},
         {'name': 'Deep Linear AE', 'ae_history': dl_loss_hist, 'clf_history': dl_clf_hist},
         {'name': 'Deep Non Linear AE', 'ae_history': dnl_loss_hist, 'clf_history': dnl_clf_hist},
-    ])
+    ],save_path=f"{STATIC_ROOT}/slide_2")
     plt.show()
 
 
@@ -231,7 +235,7 @@ def run_slide_3():
     models_data.extend([
         {"name": f"beta={beta} VAE", "ae_history": beta_vae_training_history[i], 'clf_history': clf_beta_vae_training_histories[i]} for i, beta in enumerate(BETA_VALUES)
     ])
-    plotVisualizer.plot_training_history(models_data)
+    plotVisualizer.plot_training_history(models_data,save_path=f"{STATIC_ROOT}/slide_2")
     plt.show()
 
 
@@ -285,7 +289,7 @@ def run_slide_4():
     plotVisualizer.plot_training_history([
         {"name": "Conv AE", "ae_history": cnn_history, 'clf_history': conv_clf_hist},
         {"name": "Transformer", "ae_history": vit_history, 'clf_history': vit_clf_hist}
-    ])
+    ],save_path=f"{STATIC_ROOT}/slide_2")
     plt.show()
 
     plotVisualizer.plot_cka_heatmap(conv_enc_features,vit_enc_features,save_path=f"{STATIC_ROOT}/slide_4")
