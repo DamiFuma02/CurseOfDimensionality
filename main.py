@@ -295,3 +295,83 @@ def run_slide_4():
     plotVisualizer.plot_cka_heatmap(conv_enc_features,vit_enc_features,save_path=f"{STATIC_ROOT}/slide_4")
     plt.show()
 
+def run_all_models_comparison():
+    m_ae, ae_history = get_trained_model("deep_non_linear_ae", DeepAE,
+                                         lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
+                                         latent_dim=LATENT_SPACE_DIM, non_linear=True)
+    c_ae, ae_clf_hist = get_trained_classifier("deep_non_linear_ae", m_ae)
+    pred_ae = get_predictions(m_ae, c_ae)
+    beta = 5
+    beta_vae_model, history = get_trained_model(f"betavae_{beta}", VAE,
+                                                lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS, is_vae=True,
+                                                                                beta=beta),
+                                                latent_dim=LATENT_SPACE_DIM)
+    clf_vae, v_clf_hist = get_trained_classifier(f"betavae_{beta}", beta_vae_model, is_vae=True)
+    pred_vae = get_predictions(beta_vae_model, clf_vae, is_vae=True)
+
+    m_conv, cnn_history = get_trained_model("conv_ae", ConvAE,
+                                            lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
+                                            latent_dim=LATENT_SPACE_DIM)
+    c_conv, conv_clf_hist = get_trained_classifier("conv_ae", m_conv)
+    p_conv = get_predictions(m_conv, c_conv)
+
+    m_vit, vit_history = get_trained_model("transformer_ae", TransformerAE,
+                                           lambda m, tl, vl: trainer.train(m, tl, vl, epochs=EPOCHS),
+                                           latent_dim=LATENT_SPACE_DIM)
+    c_vit, vit_clf_hist = get_trained_classifier("transformer_ae", m_vit)
+    p_vit = get_predictions(m_vit, c_vit)
+
+
+
+    with torch.no_grad():
+        rec_ae, z_ae = m_ae(imgs_eval.to(dm.device))
+        rec_vae, mu_vae, _ = beta_vae_model(imgs_eval.to(dm.device))
+        rec_conv, z_conv, conv_enc_features = m_conv(imgs_eval.to(dm.device))
+        rec_vit, z_vit, vit_enc_features = m_vit(imgs_eval.to(dm.device))
+
+    # ae metrics
+    # ae_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_ae)
+    sil_ae = latent_analizer.compute_clustering_quality(z_ae.cpu().numpy(), labels_remapped)
+    # mig_ae = latent_analizer.compute_mig(z_ae.cpu().numpy(), labels_remapped)
+
+    # vae metrics
+    # vae_reconstr_metrics = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_vae)
+    sil_vae = latent_analizer.compute_clustering_quality(mu_vae.cpu().numpy(), labels_remapped)
+    # mig_vae = latent_analizer.compute_mig(mu_vae.cpu().numpy(), labels_remapped)
+
+    # cnn metrics
+    # ssim_conv = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_conv)["ssim"]
+    # params_conv = latent_analizer.get_model_complexity(m_conv)
+    silh_conv = latent_analizer.compute_clustering_quality(z_conv.cpu().numpy(), labels_remapped)
+    # flops_conv = latent_analizer.compute_flops(m_conv)["mflops"]  # MegaFLOPs
+
+    # vit metrics
+    # ssim_trans = latent_analizer.compute_reconstruction_metrics(imgs_eval, rec_vit)["ssim"]
+    # params_trans = latent_analizer.get_model_complexity(m_vit)
+    sil_trans = latent_analizer.compute_clustering_quality(z_vit.cpu().numpy(), labels_remapped)
+    # flops_vit = latent_analizer.compute_flops(m_vit)["mflops"]  # MegaFLOPs
+
+    models_data = [
+        {'name': f'Standard AE',
+         'latent': z_ae.cpu().numpy(),
+         'recon': rec_ae.cpu().numpy(),
+         'predicted_labels': pred_ae,
+         "metrics": f'Silh: {sil_ae:.3g}\nAcc: {ae_clf_hist["val_acc"][-1]:.1f}%'},
+        {'name': f'beta={beta} VAE',
+         'latent': mu_vae.cpu().numpy(),
+         'recon': rec_vae.cpu().numpy(),
+         'predicted_labels': pred_vae,
+         "metrics": f'Silh: {sil_vae:.3g}\nAcc: {v_clf_hist["val_acc"][-1]:.1f}%'},
+        {'name': f'Conv AE',
+         'latent': z_conv.cpu().numpy(),
+         'recon': rec_conv.cpu().numpy(),
+         'predicted_labels': p_conv,
+         "metrics": f'Silh: {silh_conv:.3g}\nAcc: {conv_clf_hist["val_acc"][-1]:.1f}%'},
+        {
+        'name': f'Transformer',
+        'latent': z_vit.cpu().numpy(),
+        'recon': rec_vit.cpu().numpy(),
+        'predicted_labels': p_vit,
+        "metrics": f'Silh: {sil_trans:.3g}\nAcc: {vit_clf_hist["val_acc"][-1]:.1f}%'}
+    ]
+    plotVisualizer.plot_latent_space(models_data, imgs_eval[:N_SAMPLES], labels_remapped, dm.semantic_names,save_path=f"{STATIC_ROOT}/global")
